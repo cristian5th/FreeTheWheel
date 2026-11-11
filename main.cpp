@@ -69,6 +69,8 @@ int main(int argc, const char * argv[])
 	}
 	ConfigAllDevices(configMode);
 	printf("\nDone.\n");
+    printf("FreeTheWheel is running. Press ENTER to exit.\n");
+	getchar();
     return 0;
 }
 
