@@ -135,7 +135,7 @@ IOReturn OpenNativeDFGTDeviceShared()
 IOReturn SendNativeDFGTOutputReport(const UInt8 *report, CFIndex length)
 {
     if (!gNativeDFGTDevice || !report) return kIOReturnBadArgument;
-    if (!gNativeDFGTDeviceOpen) return kIOReturnNotOpen;
+    if (!gNativeDFGTDeviceOpen) return kIOReturnNotReady;
     if (length != 7) return kIOReturnBadArgument;
 
     // Native DFGT C29A exposes a seven-byte output report without a Report ID.
