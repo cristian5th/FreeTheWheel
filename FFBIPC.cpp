@@ -82,8 +82,8 @@ static void *serverMain(void *)
                 replyLine(client, "PONG protocol=1\n");
             } else if (strcmp(request, "STATUS") == 0) {
                 replyLine(client, IsNativeDFGTAvailable()
-                    ? "STATUS device=DFGT pid=C29A hid=retained ffb=disabled\n"
-                    : "STATUS device=DFGT pid=C29A hid=unavailable ffb=disabled\n");
+                    ? "STATUS device=DFGT pid=C29A device_ref=retained manager=open ffb=disabled\n"
+                    : "STATUS device=DFGT pid=C29A device_ref=unavailable manager=open ffb=disabled\n");
             } else if (strncmp(request, "FORCE ", 6) == 0 || strcmp(request, "STOP") == 0) {
                 replyLine(client, "ERROR force_output_not_enabled\n");
             } else {

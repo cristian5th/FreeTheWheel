@@ -9,11 +9,13 @@
 #include <unistd.h>
 #include <CoreFoundation/CFString.h>
 #include <string>
+#include <cstdlib>
+#include "WheelSupports.h"
 
 // Keep the HID manager and native DFGT reference alive for the process lifetime.
 static IOHIDManagerRef gHIDManagerRef = NULL;
 static IOHIDDeviceRef gNativeDFGTDevice = NULL;
-#include "WheelSupports.h"
+
 
 //=============================================================================
 // Mode strings

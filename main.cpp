@@ -70,7 +70,7 @@ int main(int argc, const char * argv[])
 	}
 	ConfigAllDevices(configMode);
 	printf("\nDone.\n");
-    if (!StartFFBIPCServer()) {
+    if (configMode == DeviceModeFull && !StartFFBIPCServer()) {
         fprintf(stderr, "Warning: FFB IPC server could not be started.\n");
     }
     printf("FreeTheWheel is running. Press ENTER to exit.\n");
