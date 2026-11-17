@@ -256,11 +256,6 @@ IOReturn OpenDevice(IOHIDDeviceRef hidDevice)
 
 
 //=============================================================================
-//		CloseDevice}
-
-
-
-//=============================================================================
 //		CloseDevice : Close given device if it is opened
 //-----------------------------------------------------------------------------
 IOReturn CloseDevice(IOHIDDeviceRef hidDevice)
@@ -273,11 +268,6 @@ IOReturn CloseDevice(IOHIDDeviceRef hidDevice)
 }
 
 
-
-
-
-//=============================================================================
-//		SendCommands}
 
 
 
