@@ -81,9 +81,37 @@ static void *serverMain(void *)
             if (strcmp(request, "PING") == 0) {
                 replyLine(client, "PONG protocol=1\n");
             } else if (strcmp(request, "STATUS") == 0) {
-                replyLine(client, IsNativeDFGTAvailable()
-                    ? "STATUS device=DFGT pid=C29A device_ref=retained manager=open ffb=disabled\n"
-                    : "STATUS device=DFGT pid=C29A device_ref=unavailable manager=open ffb=disabled\n");
+                char status[256];
+                snprintf(status, sizeof(status),
+                         "STATUS device=DFGT pid=C29A manager_open=%s manager_result=%08x device_ref=%s device_open=%s ffb=disabled\n",
+                         IsHIDManagerOpen() ? "yes" : "no",
+                         (unsigned int)HIDManagerOpenResult(),
+                         IsNativeDFGTAvailable() ? "retained" : "unavailable",
+                         IsNativeDFGTDeviceOpen() ? "yes" : "no");
+                replyLine(client, status);
+            } else if (strcmp(request, "PROBE") == 0) {
+                if (!IsNativeDFGTAvailable()) {
+                    replyLine(client, "PROBE open=not-attempted result=no_device device_open=no\n");
+                } else {
+                    IOReturn openResult = OpenNativeDFGTDevice();
+                    if (openResult != kIOReturnSuccess) {
+                        char response[128];
+                        snprintf(response, sizeof(response),
+                                 "PROBE open=failed result=%08x device_open=%s\n",
+                                 (unsigned int)openResult,
+                                 IsNativeDFGTDeviceOpen() ? "yes" : "no");
+                        replyLine(client, response);
+                    } else {
+                        IOReturn closeResult = CloseNativeDFGTDevice();
+                        char response[160];
+                        snprintf(response, sizeof(response),
+                                 "PROBE open=success close=%s close_result=%08x device_open=%s\n",
+                                 closeResult == kIOReturnSuccess ? "success" : "failed",
+                                 (unsigned int)closeResult,
+                                 IsNativeDFGTDeviceOpen() ? "yes" : "no");
+                        replyLine(client, response);
+                    }
+                }
             } else if (strncmp(request, "FORCE ", 6) == 0 || strcmp(request, "STOP") == 0) {
                 replyLine(client, "ERROR force_output_not_enabled\n");
             } else {
