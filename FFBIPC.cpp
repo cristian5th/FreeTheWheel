@@ -182,6 +182,7 @@ static void *serverMain(void *)
                 replyLine(client, "PONG protocol=1\n");
             } else if (strcmp(request, "STATUS") == 0) {
                 char status[256];
+                pthread_mutex_lock(&ffbMutex);
                 snprintf(status, sizeof(status),
                          "STATUS device=DFGT pid=C29A manager_open=%s manager_result=%08x device_ref=%s device_open=%s ffb=%s limit=%d\n",
                          IsHIDManagerOpen() ? "yes" : "no",
@@ -189,6 +190,7 @@ static void *serverMain(void *)
                          IsNativeDFGTAvailable() ? "retained" : "unavailable",
                          IsNativeDFGTDeviceOpen() ? "yes" : "no",
                          ffbActive ? "active" : "stopped", kMaxForce);
+                pthread_mutex_unlock(&ffbMutex);
                 replyLine(client, status);
             } else if (strcmp(request, "PROBE") == 0) {
                 if (!IsNativeDFGTAvailable()) {
