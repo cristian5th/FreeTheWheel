@@ -23,6 +23,7 @@
 
 #include <iostream>
 #include "WheelSupports.h"
+#include "FFBIPC.h"
 
 int main(int argc, const char * argv[])
 {
@@ -69,6 +70,9 @@ int main(int argc, const char * argv[])
 	}
 	ConfigAllDevices(configMode);
 	printf("\nDone.\n");
+    if (!StartFFBIPCServer()) {
+        fprintf(stderr, "Warning: FFB IPC server could not be started.\n");
+    }
     printf("FreeTheWheel is running. Press ENTER to exit.\n");
 	getchar();
     return 0;

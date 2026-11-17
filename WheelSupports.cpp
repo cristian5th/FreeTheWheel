@@ -9,6 +9,10 @@
 #include <unistd.h>
 #include <CoreFoundation/CFString.h>
 #include <string>
+
+// Keep the HID manager and native DFGT reference alive for the process lifetime.
+static IOHIDManagerRef gHIDManagerRef = NULL;
+static IOHIDDeviceRef gNativeDFGTDevice = NULL;
 #include "WheelSupports.h"
 
 //=============================================================================
@@ -32,10 +36,59 @@ void SetApplierFunctionCopyToCFArray(const void *value, void *context)
 //-----------------------------------------------------------------------------
 IOHIDManagerRef AllocateHIDManager()
 {
-	IOHIDManagerRef managerRef = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDManagerOptionNone);
-	IOHIDManagerSetDeviceMatching(managerRef, NULL);
-	IOHIDManagerOpen(managerRef, kIOHIDOptionsTypeSeizeDevice);
-	return managerRef;
+    if (gHIDManagerRef) return gHIDManagerRef;
+
+    gHIDManagerRef = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDManagerOptionNone);
+    if (!gHIDManagerRef) return NULL;
+
+    IOHIDManagerSetDeviceMatching(gHIDManagerRef, NULL);
+    IOReturn result = IOHIDManagerOpen(gHIDManagerRef, kIOHIDOptionsTypeSeizeDevice);
+    if (result != kIOReturnSuccess) {
+        printf("Error: IOHIDManagerOpen failed (%x).\\n", result);
+        CFRelease(gHIDManagerRef);
+        gHIDManagerRef = NULL;
+    }
+    return gHIDManagerRef;
+}
+
+static void RetainNativeDFGTIfPresent()
+{
+    if (!gHIDManagerRef || gNativeDFGTDevice) return;
+
+    // C294 disconnects and re-enumerates as C29A. Reuse the existing manager:
+    // opening a second seized manager could interrupt the currently working HID path.
+    for (int attempt = 0; attempt < 30 && !gNativeDFGTDevice; ++attempt) {
+        CFSetRef devices = IOHIDManagerCopyDevices(gHIDManagerRef);
+        if (devices) {
+            CFIndex count = CFSetGetCount(devices);
+            const void **values = (const void **)calloc((size_t)count, sizeof(void *));
+            if (values) {
+                CFSetGetValues(devices, values);
+                for (CFIndex i = 0; i < count; ++i) {
+                    IOHIDDeviceRef device = (IOHIDDeviceRef)values[i];
+                    UInt32 vendor = GetPropertyNumber(device, CFSTR(kIOHIDVendorIDKey));
+                    UInt32 product = GetPropertyNumber(device, CFSTR(kIOHIDProductIDKey));
+                    if (vendor == 0x046d && product == 0xc29a) {
+                        gNativeDFGTDevice = (IOHIDDeviceRef)CFRetain(device);
+                        break;
+                    }
+                }
+                free(values);
+            }
+            CFRelease(devices);
+        }
+        if (!gNativeDFGTDevice) usleep(100000);
+    }
+
+    if (gNativeDFGTDevice)
+        printf("Retained native Logitech DFGT HID reference (VID 046D, PID C29A).\\n");
+    else
+        printf("Warning: native DFGT HID reference was not retained.\\n");
+}
+
+bool IsNativeDFGTAvailable()
+{
+    return gNativeDFGTDevice != NULL;
 }
 
 
@@ -55,7 +108,12 @@ bool ConfigAllDevices(const DeviceMode mode)
 
         // Obtain a copy of the list of connected devices
         IOHIDManagerRef managerRef = AllocateHIDManager();
+        if (!managerRef) return false;
         CFSetRef deviceCFSetRef = IOHIDManagerCopyDevices(managerRef);
+        if (!deviceCFSetRef) {
+            usleep(100000);
+            continue;
+        }
 
         CFIndex count = CFSetGetCount(deviceCFSetRef);
         CFArrayRef devCFArrayRef = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
@@ -77,6 +135,8 @@ bool ConfigAllDevices(const DeviceMode mode)
         CFRelease(devCFArrayRef);
         CFRelease(deviceCFSetRef);
     }
+
+    if (mode == DeviceModeFull && changed) RetainNativeDFGTIfPresent();
 
     printf("Succeeded after %i tries.", tryCount);
 

@@ -50,3 +50,18 @@ Assuming you have a development environment installed, run `make`.
 ## Credits
 
 Based on [Feral Interactive's FreeTheWheel](http://support.feralinteractive.com/en/faqs/free_the_wheel/) and [jackhumbert's FreeTheWheel](https://github.com/jackhumbert/FreeTheWheel).
+
+
+## Force-feedback integration (development branch)
+
+The `ffb-integration` branch adds a same-user Unix-domain IPC endpoint for an ETS2 telemetry bridge and retains a reference to the DFGT after it re-enumerates in native PID `0xC29A`.
+
+Socket path:
+`~/Library/Application Support/FreeTheWheel/ffb.sock`
+
+Protocol v1 currently supports:
+- `PING` → `PONG protocol=1`
+- `STATUS` → reports whether the native DFGT HID reference was retained
+- `FORCE ...` and `STOP` → explicitly rejected while output-report and stop handling are being validated
+
+**Force output is deliberately disabled in this stage.** The IPC transport and retained device reference must be built and tested on the target Mac before any motor command is enabled. Existing wheel configuration, 900-degree range, and the process-lifetime behaviour are preserved.

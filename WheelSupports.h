@@ -23,6 +23,7 @@
 #define __WheelSupportTools__WheelSupports__
 
 #include <IOKit/hid/IOHIDManager.h>
+#include <stdbool.h>
 
 
 // Device IDs (format is 16-bits product ID, followed by 16-bits vender ID)
@@ -74,6 +75,7 @@ struct CCommands
 
 //=============================================================================
 IOHIDManagerRef AllocateHIDManager();
+bool IsNativeDFGTAvailable();
 
 bool ConfigAllDevices(const DeviceMode mode);
 bool ConfigDevice(IOHIDDeviceRef hidDevice, DeviceID deviceID, const DeviceMode mode);
