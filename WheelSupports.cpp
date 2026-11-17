@@ -15,6 +15,9 @@
 // Keep the HID manager and native DFGT reference alive for the process lifetime.
 static IOHIDManagerRef gHIDManagerRef = NULL;
 static IOHIDDeviceRef gNativeDFGTDevice = NULL;
+static bool gHIDManagerOpen = false;
+static IOReturn gHIDManagerOpenResult = kIOReturnNotReady;
+static bool gNativeDFGTDeviceOpen = false;
 
 
 //=============================================================================
@@ -47,9 +50,11 @@ IOHIDManagerRef AllocateHIDManager()
     // Preserve the original FreeTheWheel behaviour: on this HID stack,
     // manager seize may report exclusive access even though the original
     // per-device enumeration/configuration path can still work.
-    IOReturn result = IOHIDManagerOpen(gHIDManagerRef, kIOHIDOptionsTypeSeizeDevice);
-    if (result != kIOReturnSuccess) {
-        printf("Warning: IOHIDManagerOpen returned (%x); continuing with device enumeration.\\n", result);
+    gHIDManagerOpenResult = IOHIDManagerOpen(gHIDManagerRef, kIOHIDOptionsTypeSeizeDevice);
+    gHIDManagerOpen = (gHIDManagerOpenResult == kIOReturnSuccess);
+    if (!gHIDManagerOpen) {
+        printf("Warning: IOHIDManagerOpen returned (%x); continuing with device enumeration.\\n",
+               (unsigned int)gHIDManagerOpenResult);
     }
     return gHIDManagerRef;
 }
@@ -92,6 +97,35 @@ static void RetainNativeDFGTIfPresent()
 bool IsNativeDFGTAvailable()
 {
     return gNativeDFGTDevice != NULL;
+}
+
+bool IsHIDManagerOpen()
+{
+    return gHIDManagerOpen;
+}
+
+IOReturn HIDManagerOpenResult()
+{
+    return gHIDManagerOpenResult;
+}
+
+bool IsNativeDFGTDeviceOpen()
+{
+    return gNativeDFGTDeviceOpen;
+}
+
+IOReturn OpenNativeDFGTDevice()
+{
+    if (!gNativeDFGTDevice) return kIOReturnNoDevice;
+    if (gNativeDFGTDeviceOpen) return kIOReturnSuccess;
+    return OpenDevice(gNativeDFGTDevice);
+}
+
+IOReturn CloseNativeDFGTDevice()
+{
+    if (!gNativeDFGTDevice) return kIOReturnNoDevice;
+    if (!gNativeDFGTDeviceOpen) return kIOReturnSuccess;
+    return CloseDevice(gNativeDFGTDevice);
 }
 
 
@@ -189,32 +223,40 @@ bool ConfigDevice(IOHIDDeviceRef hidDevice, DeviceID deviceID, const DeviceMode 
 //-----------------------------------------------------------------------------
 IOReturn OpenDevice(IOHIDDeviceRef hidDevice)
 {
-	IOReturn result = IOHIDDeviceOpen(hidDevice, kIOHIDOptionsTypeSeizeDevice);
-        std::string msg = "";
-        
-        switch(result) {
-        case kIOReturnError: msg = "general error"; break;
-        case kIOReturnNoMemory: msg = "can't allocate memory"; break;
-        case kIOReturnNoResources: msg = "resource shortage"; break;
-        case kIOReturnIPCError: msg = "error during IPC"; break;
-        case kIOReturnNoDevice: msg = "no such device"; break;
-        case kIOReturnNotPrivileged: msg = "privilege violation"; break;
-        case kIOReturnBadArgument: msg = "invalid argument"; break;
-        case kIOReturnLockedRead: msg = "device read locked"; break;
-        case kIOReturnLockedWrite: msg = "device write locked"; break;
-        //case kIOReturnExclusiveAccess: msg = "exclusive access and device already open"; break; // Common error on macOS Catalina with DFGT
-        case kIOReturnBadMessageID: msg = "sent/received messages had different msg_id"; break;
-        case kIOReturnUnsupported: msg = "unsupported function"; break;
-        case kIOReturnVMError: msg = "misc. VM failure"; break;
-        }
+    if (!hidDevice) return kIOReturnBadArgument;
 
-        if(msg != "") {
-          printf("Error: OpenDevice failed - %s - (%x)\n", msg.c_str(), result);
-          return result;
-
+    IOReturn result = IOHIDDeviceOpen(hidDevice, kIOHIDOptionsTypeSeizeDevice);
+    if (result != kIOReturnSuccess) {
+        const char *reason = "IOKit error";
+        switch (result) {
+            case kIOReturnError: reason = "general error"; break;
+            case kIOReturnNoMemory: reason = "can't allocate memory"; break;
+            case kIOReturnNoResources: reason = "resource shortage"; break;
+            case kIOReturnIPCError: reason = "error during IPC"; break;
+            case kIOReturnNoDevice: reason = "no such device"; break;
+            case kIOReturnNotPrivileged: reason = "privilege violation"; break;
+            case kIOReturnBadArgument: reason = "invalid argument"; break;
+            case kIOReturnLockedRead: reason = "device read locked"; break;
+            case kIOReturnLockedWrite: reason = "device write locked"; break;
+            case kIOReturnExclusiveAccess: reason = "exclusive access"; break;
+            case kIOReturnBadMessageID: reason = "bad message ID"; break;
+            case kIOReturnUnsupported: reason = "unsupported function"; break;
+            case kIOReturnVMError: reason = "VM failure"; break;
         }
-        return kIOReturnSuccess;
+        printf("Error: OpenDevice failed - %s - (%x)\\n", reason, (unsigned int)result);
+        return result;
+    }
+
+    if (hidDevice == gNativeDFGTDevice) gNativeDFGTDeviceOpen = true;
+    return kIOReturnSuccess;
 }
+
+
+
+
+
+//=============================================================================
+//		CloseDevice}
 
 
 
@@ -223,8 +265,19 @@ IOReturn OpenDevice(IOHIDDeviceRef hidDevice)
 //-----------------------------------------------------------------------------
 IOReturn CloseDevice(IOHIDDeviceRef hidDevice)
 {
-	return IOHIDDeviceClose(hidDevice, 0);
+    if (!hidDevice) return kIOReturnBadArgument;
+    IOReturn result = IOHIDDeviceClose(hidDevice, 0);
+    if (result == kIOReturnSuccess && hidDevice == gNativeDFGTDevice)
+        gNativeDFGTDeviceOpen = false;
+    return result;
 }
+
+
+
+
+
+//=============================================================================
+//		SendCommands}
 
 
 
