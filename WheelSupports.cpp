@@ -121,6 +121,28 @@ IOReturn OpenNativeDFGTDevice()
     return OpenDevice(gNativeDFGTDevice);
 }
 
+IOReturn OpenNativeDFGTDeviceShared()
+{
+    if (!gNativeDFGTDevice) return kIOReturnNoDevice;
+    if (gNativeDFGTDeviceOpen) return kIOReturnSuccess;
+
+    // Shared open keeps the system's normal HID input path available.
+    IOReturn result = IOHIDDeviceOpen(gNativeDFGTDevice, kIOHIDOptionsTypeNone);
+    if (result == kIOReturnSuccess) gNativeDFGTDeviceOpen = true;
+    return result;
+}
+
+IOReturn SendNativeDFGTOutputReport(const UInt8 *report, CFIndex length)
+{
+    if (!gNativeDFGTDevice || !report) return kIOReturnBadArgument;
+    if (!gNativeDFGTDeviceOpen) return kIOReturnNotOpen;
+    if (length != 7) return kIOReturnBadArgument;
+
+    // Native DFGT C29A exposes a seven-byte output report without a Report ID.
+    return IOHIDDeviceSetReport(gNativeDFGTDevice, kIOHIDReportTypeOutput,
+                                0, report, length);
+}
+
 IOReturn CloseNativeDFGTDevice()
 {
     if (!gNativeDFGTDevice) return kIOReturnNoDevice;
