@@ -11,8 +11,99 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <cstdint>
+#include <ctime>
 
 static std::string socketPath;
+static pthread_mutex_t ffbMutex = PTHREAD_MUTEX_INITIALIZER;
+static bool ffbSessionOpen = false;
+static bool ffbActive = false;
+static time_t lastForceTime = 0;
+static constexpr int kMaxForce = 32;
+static constexpr time_t kWatchdogSeconds = 1;
+
+static IOReturn sendStopLocked()
+{
+    if (!ffbSessionOpen) return kIOReturnSuccess;
+    const UInt8 report[7] = {0x13, 0, 0, 0, 0, 0, 0};
+    IOReturn result = SendNativeDFGTOutputReport(report, 7);
+    ffbActive = false;
+    IOReturn closeResult = CloseNativeDFGTDevice();
+    ffbSessionOpen = false;
+    return result != kIOReturnSuccess ? result : closeResult;
+}
+
+static void *watchdogMain(void *)
+{
+    for (;;) {
+        sleep(1);
+        pthread_mutex_lock(&ffbMutex);
+        if (ffbSessionOpen && ffbActive && time(nullptr) - lastForceTime >= kWatchdogSeconds)
+            (void)sendStopLocked();
+        pthread_mutex_unlock(&ffbMutex);
+    }
+    return nullptr;
+}
+
+static bool parseForce(const char *request, int *force)
+{
+    if (strncmp(request, "FORCE ", 6) != 0) return false;
+    char *end = nullptr;
+    long value = strtol(request + 6, &end, 10);
+    if (end == request + 6 || *end != '\0' || value < -kMaxForce || value > kMaxForce)
+        return false;
+    *force = (int)value;
+    return true;
+}
+
+static void handleForce(int fd, int force)
+{
+    pthread_mutex_lock(&ffbMutex);
+    if (!IsNativeDFGTAvailable()) {
+        replyLine(fd, "ERROR no_device\n");
+    } else {
+        IOReturn result = kIOReturnSuccess;
+        if (!ffbSessionOpen) {
+            result = OpenNativeDFGTDeviceShared();
+            if (result == kIOReturnSuccess) ffbSessionOpen = true;
+        }
+        if (result == kIOReturnSuccess) {
+            const UInt8 report[7] = {0x11, 0x08, (UInt8)(0x80 + force), 0x80, 0, 0, 0};
+            result = SendNativeDFGTOutputReport(report, 7);
+        }
+        if (result == kIOReturnSuccess) {
+            ffbActive = force != 0;
+            lastForceTime = time(nullptr);
+            char response[96];
+            snprintf(response, sizeof(response), "FORCE accepted value=%d limit=%d\n", force, kMaxForce);
+            replyLine(fd, response);
+        } else {
+            (void)sendStopLocked();
+            char response[96];
+            snprintf(response, sizeof(response), "ERROR force_io_result=%08x\n", (unsigned int)result);
+            replyLine(fd, response);
+        }
+    }
+    pthread_mutex_unlock(&ffbMutex);
+}
+
+static void handleStop(int fd)
+{
+    pthread_mutex_lock(&ffbMutex);
+    IOReturn result = sendStopLocked();
+    pthread_mutex_unlock(&ffbMutex);
+    char response[96];
+    snprintf(response, sizeof(response), "STOP result=%08x\n", (unsigned int)result);
+    replyLine(fd, response);
+}
+
+static void stopAtExit()
+{
+    pthread_mutex_lock(&ffbMutex);
+    (void)sendStopLocked();
+    pthread_mutex_unlock(&ffbMutex);
+}
+
 
 static bool prepareSocketPath()
 {
@@ -112,8 +203,14 @@ static void *serverMain(void *)
                         replyLine(client, response);
                     }
                 }
-            } else if (strncmp(request, "FORCE ", 6) == 0 || strcmp(request, "STOP") == 0) {
-                replyLine(client, "ERROR force_output_not_enabled\n");
+            } else if (strncmp(request, "FORCE ", 6) == 0) {
+                int force = 0;
+                if (!parseForce(request, &force))
+                    replyLine(client, "ERROR force_out_of_range_or_invalid (allowed -32..32)\n");
+                else
+                    handleForce(client, force);
+            } else if (strcmp(request, "STOP") == 0) {
+                handleStop(client);
             } else {
                 replyLine(client, "ERROR unknown_command\n");
             }
@@ -135,6 +232,15 @@ bool StartFFBIPCServer()
         return false;
     }
     pthread_detach(thread);
+
+    pthread_t watchdog;
+    result = pthread_create(&watchdog, nullptr, watchdogMain, nullptr);
+    if (result != 0) {
+        fprintf(stderr, "FFB IPC: watchdog thread failed (%d).\\n", result);
+        return false;
+    }
+    pthread_detach(watchdog);
+    atexit(stopAtExit);
     return true;
 }
 
