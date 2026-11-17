@@ -44,11 +44,12 @@ IOHIDManagerRef AllocateHIDManager()
     if (!gHIDManagerRef) return NULL;
 
     IOHIDManagerSetDeviceMatching(gHIDManagerRef, NULL);
+    // Preserve the original FreeTheWheel behaviour: on this HID stack,
+    // manager seize may report exclusive access even though the original
+    // per-device enumeration/configuration path can still work.
     IOReturn result = IOHIDManagerOpen(gHIDManagerRef, kIOHIDOptionsTypeSeizeDevice);
     if (result != kIOReturnSuccess) {
-        printf("Error: IOHIDManagerOpen failed (%x).\\n", result);
-        CFRelease(gHIDManagerRef);
-        gHIDManagerRef = NULL;
+        printf("Warning: IOHIDManagerOpen returned (%x); continuing with device enumeration.\\n", result);
     }
     return gHIDManagerRef;
 }
