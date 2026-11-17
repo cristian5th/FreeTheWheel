@@ -81,6 +81,8 @@ IOReturn HIDManagerOpenResult();
 bool IsNativeDFGTDeviceOpen();
 IOReturn OpenNativeDFGTDevice();
 IOReturn CloseNativeDFGTDevice();
+IOReturn OpenNativeDFGTDeviceShared();
+IOReturn SendNativeDFGTOutputReport(const UInt8 *report, CFIndex length);
 
 bool ConfigAllDevices(const DeviceMode mode);
 bool ConfigDevice(IOHIDDeviceRef hidDevice, DeviceID deviceID, const DeviceMode mode);
