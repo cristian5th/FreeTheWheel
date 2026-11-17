@@ -15,12 +15,13 @@
 #include <ctime>
 
 static std::string socketPath;
+static void replyLine(int fd, const char *line);
 static pthread_mutex_t ffbMutex = PTHREAD_MUTEX_INITIALIZER;
 static bool ffbSessionOpen = false;
 static bool ffbActive = false;
 static time_t lastForceTime = 0;
 static constexpr int kMaxForce = 32;
-static constexpr time_t kWatchdogSeconds = 1;
+static constexpr time_t kWatchdogSeconds = 2;
 
 static IOReturn sendStopLocked()
 {
@@ -62,6 +63,14 @@ static void handleForce(int fd, int force)
     if (!IsNativeDFGTAvailable()) {
         replyLine(fd, "ERROR no_device\n");
     } else {
+        if (force == 0) {
+            IOReturn stopResult = sendStopLocked();
+            char response[96];
+            snprintf(response, sizeof(response), "FORCE neutral stop_result=%08x\n", (unsigned int)stopResult);
+            replyLine(fd, response);
+            pthread_mutex_unlock(&ffbMutex);
+            return;
+        }
         IOReturn result = kIOReturnSuccess;
         if (!ffbSessionOpen) {
             result = OpenNativeDFGTDeviceShared();
@@ -174,11 +183,12 @@ static void *serverMain(void *)
             } else if (strcmp(request, "STATUS") == 0) {
                 char status[256];
                 snprintf(status, sizeof(status),
-                         "STATUS device=DFGT pid=C29A manager_open=%s manager_result=%08x device_ref=%s device_open=%s ffb=disabled\n",
+                         "STATUS device=DFGT pid=C29A manager_open=%s manager_result=%08x device_ref=%s device_open=%s ffb=%s limit=%d\n",
                          IsHIDManagerOpen() ? "yes" : "no",
                          (unsigned int)HIDManagerOpenResult(),
                          IsNativeDFGTAvailable() ? "retained" : "unavailable",
-                         IsNativeDFGTDeviceOpen() ? "yes" : "no");
+                         IsNativeDFGTDeviceOpen() ? "yes" : "no",
+                         ffbActive ? "active" : "stopped", kMaxForce);
                 replyLine(client, status);
             } else if (strcmp(request, "PROBE") == 0) {
                 if (!IsNativeDFGTAvailable()) {
