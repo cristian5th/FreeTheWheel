@@ -594,7 +594,7 @@ static void *clientMain(void *argument)
                     if (strcmp(line, "STOP") == 0) {
                         IOReturn stopResult = stopTelemetryOutput();
                         char response[96];
-                        snprintf(response, sizeof(response), "STOP result=%08x\\n",
+                        snprintf(response, sizeof(response), "STOP result=%08x\n",
                                  static_cast<unsigned int>(stopResult));
                         replyLine(fd, response);
                         done = true;
