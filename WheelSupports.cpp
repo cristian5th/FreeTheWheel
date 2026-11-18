@@ -56,7 +56,7 @@ IOHIDManagerRef AllocateHIDManager()
     gHIDManagerOpenResult = IOHIDManagerOpen(gHIDManagerRef, kIOHIDOptionsTypeSeizeDevice);
     gHIDManagerOpen = (gHIDManagerOpenResult == kIOReturnSuccess);
     if (!gHIDManagerOpen) {
-        printf("Warning: IOHIDManagerOpen returned (%x); continuing with device enumeration.\\n",
+        printf("Warning: IOHIDManagerOpen returned (%x); continuing with device enumeration.\n",
                (unsigned int)gHIDManagerOpenResult);
     }
     return gHIDManagerRef;
@@ -72,7 +72,7 @@ static void RetainNativeDFGTIfPresent()
         gNativeDFGTDiscoveryManager =
             IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDManagerOptionNone);
         if (!gNativeDFGTDiscoveryManager) {
-            printf("Warning: could not create native DFGT discovery manager.\\n");
+            printf("Warning: could not create native DFGT discovery manager.\n");
             return;
         }
 
@@ -87,7 +87,7 @@ static void RetainNativeDFGTIfPresent()
             if (vendorNumber) CFRelease(vendorNumber);
             if (productNumber) CFRelease(productNumber);
             if (matching) CFRelease(matching);
-            printf("Warning: could not create native DFGT matching dictionary.\\n");
+            printf("Warning: could not create native DFGT matching dictionary.\n");
             return;
         }
 
@@ -101,10 +101,10 @@ static void RetainNativeDFGTIfPresent()
         gNativeDFGTDiscoveryOpenResult =
             IOHIDManagerOpen(gNativeDFGTDiscoveryManager, kIOHIDOptionsTypeNone);
         if (gNativeDFGTDiscoveryOpenResult != kIOReturnSuccess) {
-            printf("Warning: shared DFGT discovery manager open returned (%x).\\n",
+            printf("Warning: shared DFGT discovery manager open returned (%x).\n",
                    (unsigned int)gNativeDFGTDiscoveryOpenResult);
         } else {
-            printf("Opened separate shared DFGT discovery manager.\\n");
+            printf("Opened separate shared DFGT discovery manager.\n");
         }
     }
 
@@ -132,9 +132,9 @@ static void RetainNativeDFGTIfPresent()
     }
 
     if (gNativeDFGTDevice)
-        printf("Retained native Logitech DFGT HID reference (VID 046D, PID C29A).\\n");
+        printf("Retained native Logitech DFGT HID reference (VID 046D, PID C29A).\n");
     else
-        printf("Warning: native DFGT HID reference was not retained.\\n");
+        printf("Warning: native DFGT HID reference was not retained.\n");
 }
 
 bool IsNativeDFGTAvailable()
@@ -308,7 +308,7 @@ IOReturn OpenDevice(IOHIDDeviceRef hidDevice)
             case kIOReturnUnsupported: reason = "unsupported function"; break;
             case kIOReturnVMError: reason = "VM failure"; break;
         }
-        printf("Error: OpenDevice failed - %s - (%x)\\n", reason, (unsigned int)result);
+        printf("Error: OpenDevice failed - %s - (%x)\n", reason, (unsigned int)result);
         return result;
     }
 
