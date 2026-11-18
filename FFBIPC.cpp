@@ -16,6 +16,8 @@
 #include <cmath>
 #include <chrono>
 #include <vector>
+#include <new>
+#include <sys/time.h>
 
 static std::string socketPath;
 static pthread_mutex_t ffbMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -529,7 +531,15 @@ static void *clientMain(void *argument)
         char input[512];
         ssize_t count = recv(fd, input, sizeof(input), 0);
 
-        if (count == 0) break;
+        if (count == 0) {
+            // Legacy one-shot commands historically did not require a newline.
+            // Telemetry sessions always use newline-delimited records.
+            if (firstLine && !telemetryMode && used > 0) {
+                line[used] = '\0';
+                handleLegacyCommand(fd, line);
+            }
+            break;
+        }
 
         if (count < 0) {
             if (errno == EINTR) continue;
@@ -539,10 +549,9 @@ static void *clientMain(void *argument)
 
                     pthread_mutex_lock(&telemetryMutex);
                     const bool stale = telemetryClientFD == fd &&
-                        (!telemetrySampleValid ||
-                         std::chrono::duration_cast<std::chrono::milliseconds>(
-                             std::chrono::steady_clock::now() -
-                             lastTelemetryAccepted).count() > kTelemetryTimeoutMs);
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() -
+                            lastTelemetryAccepted).count() > kTelemetryTimeoutMs;
                     pthread_mutex_unlock(&telemetryMutex);
 
                     if (stale) {
