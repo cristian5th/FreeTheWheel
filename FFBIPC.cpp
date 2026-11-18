@@ -316,11 +316,12 @@ static bool isCurrentTelemetryClient(int fd)
     return current;
 }
 
-static void stopTelemetryOutput()
+static IOReturn stopTelemetryOutput()
 {
     pthread_mutex_lock(&ffbMutex);
-    (void)sendStopLocked();
+    IOReturn result = sendStopLocked();
     pthread_mutex_unlock(&ffbMutex);
+    return result;
 }
 
 static void endTelemetrySession(int fd)
@@ -518,7 +519,7 @@ static void *clientMain(void *argument)
 
     timeval timeout{};
     timeout.tv_sec = 0;
-    timeout.tv_usec = 250000;
+    timeout.tv_usec = 50000;
     (void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
     char line[kMaxLineLength + 1]{};
@@ -591,8 +592,11 @@ static void *clientMain(void *argument)
                     }
                 } else if (telemetryMode) {
                     if (strcmp(line, "STOP") == 0) {
-                        stopTelemetryOutput();
-                        replyLine(fd, "STOP result=00000000\n");
+                        IOReturn stopResult = stopTelemetryOutput();
+                        char response[96];
+                        snprintf(response, sizeof(response), "STOP result=%08x\\n",
+                                 static_cast<unsigned int>(stopResult));
+                        replyLine(fd, response);
                         done = true;
                     } else if (!acceptTelemetrySample(fd, line)) {
                         replyLine(fd, "ERR invalid_or_stale_sample\n");
@@ -614,6 +618,24 @@ static void *clientMain(void *argument)
                 } else {
                     line[used++] = ch;
                 }
+            }
+        }
+
+        // Preserve the original one-shot client behavior: legacy commands may
+        // be sent without a newline or a write-side shutdown.
+        if (!done && firstLine && !telemetryMode && used > 0) {
+            line[used] = '\0';
+            int parsedForce = 0;
+            const bool completeLegacy =
+                strcmp(line, "PING") == 0 ||
+                strcmp(line, "STATUS") == 0 ||
+                strcmp(line, "SHARED_PROBE") == 0 ||
+                strcmp(line, "PROBE") == 0 ||
+                strcmp(line, "STOP") == 0 ||
+                parseForce(line, &parsedForce);
+            if (completeLegacy) {
+                handleLegacyCommand(fd, line);
+                done = true;
             }
         }
     }
