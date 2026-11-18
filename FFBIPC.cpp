@@ -364,13 +364,13 @@ static bool acceptTelemetrySample(int fd, const char *line)
     }
 
     const auto now = std::chrono::steady_clock::now();
-    if (telemetrySampleValid) {
+    if (sample.driving && telemetrySampleValid) {
         const auto elapsed =
             std::chrono::duration_cast<std::chrono::microseconds>(
                 now - lastTelemetryAccepted).count();
         if (elapsed < 1000000 / kTelemetryMaxRateHz) {
             pthread_mutex_unlock(&telemetryMutex);
-            return true; // Rate-limited sample: ignore, do not queue.
+            return true; // Rate-limited driving sample: ignore, do not queue.
         }
     }
 
