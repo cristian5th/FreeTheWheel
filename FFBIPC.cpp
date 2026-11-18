@@ -681,6 +681,10 @@ static void *serverMain(void *)
             break;
         }
 
+        int noSignal = 1;
+        (void)setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE,
+                         &noSignal, sizeof(noSignal));
+
         uid_t peerUID = static_cast<uid_t>(-1);
         gid_t peerGID = static_cast<gid_t>(-1);
         if (getpeereid(client, &peerUID, &peerGID) != 0 ||
