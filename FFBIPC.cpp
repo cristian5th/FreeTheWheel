@@ -192,6 +192,24 @@ static void *serverMain(void *)
                          ffbActive ? "active" : "stopped", kMaxForce);
                 pthread_mutex_unlock(&ffbMutex);
                 replyLine(client, status);
+            } else if (strcmp(request, "SHARED_PROBE") == 0) {
+                pthread_mutex_lock(&ffbMutex);
+                IOReturn openResult = OpenNativeDFGTDeviceShared();
+                IOReturn closeResult = kIOReturnNotReady;
+
+                if (openResult == kIOReturnSuccess)
+                    closeResult = CloseNativeDFGTDevice();
+
+                char response[160];
+                snprintf(response, sizeof(response),
+                         "SHARED_PROBE open=%s open_result=%08x close=%s close_result=%08x device_open=%s\\n",
+                         openResult == kIOReturnSuccess ? "success" : "failed",
+                         (unsigned int)openResult,
+                         closeResult == kIOReturnSuccess ? "success" : "failed",
+                         (unsigned int)closeResult,
+                         IsNativeDFGTDeviceOpen() ? "yes" : "no");
+                pthread_mutex_unlock(&ffbMutex);
+                replyLine(client, response);
             } else if (strcmp(request, "PROBE") == 0) {
                 if (!IsNativeDFGTAvailable()) {
                     replyLine(client, "PROBE open=not-attempted result=no_device device_open=no\n");
