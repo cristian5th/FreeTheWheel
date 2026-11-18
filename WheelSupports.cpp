@@ -12,11 +12,14 @@
 #include <cstdlib>
 #include "WheelSupports.h"
 
-// Keep the HID manager and native DFGT reference alive for the process lifetime.
+// Keep the configuration manager and native DFGT references alive for the process lifetime.
+// The discovery manager is separate and opens shared, so it cannot seize the working input path.
 static IOHIDManagerRef gHIDManagerRef = NULL;
+static IOHIDManagerRef gNativeDFGTDiscoveryManager = NULL;
 static IOHIDDeviceRef gNativeDFGTDevice = NULL;
 static bool gHIDManagerOpen = false;
 static IOReturn gHIDManagerOpenResult = kIOReturnNotReady;
+static IOReturn gNativeDFGTDiscoveryOpenResult = kIOReturnNotReady;
 static bool gNativeDFGTDeviceOpen = false;
 
 
@@ -61,12 +64,52 @@ IOHIDManagerRef AllocateHIDManager()
 
 static void RetainNativeDFGTIfPresent()
 {
-    if (!gHIDManagerRef || gNativeDFGTDevice) return;
+    if (gNativeDFGTDevice) return;
 
-    // C294 disconnects and re-enumerates as C29A. Reuse the existing manager:
-    // opening a second seized manager could interrupt the currently working HID path.
+    // The original configuration manager may still hold the pre-re-enumeration
+    // C294 device list. Discover C29A with a fresh, non-seizing manager instead.
+    if (!gNativeDFGTDiscoveryManager) {
+        gNativeDFGTDiscoveryManager =
+            IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDManagerOptionNone);
+        if (!gNativeDFGTDiscoveryManager) {
+            printf("Warning: could not create native DFGT discovery manager.\\n");
+            return;
+        }
+
+        int vendorID = 0x046d;
+        int productID = 0xc29a;
+        CFNumberRef vendorNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &vendorID);
+        CFNumberRef productNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &productID);
+        CFMutableDictionaryRef matching = CFDictionaryCreateMutable(
+            kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks);
+        if (!vendorNumber || !productNumber || !matching) {
+            if (vendorNumber) CFRelease(vendorNumber);
+            if (productNumber) CFRelease(productNumber);
+            if (matching) CFRelease(matching);
+            printf("Warning: could not create native DFGT matching dictionary.\\n");
+            return;
+        }
+
+        CFDictionarySetValue(matching, CFSTR(kIOHIDVendorIDKey), vendorNumber);
+        CFDictionarySetValue(matching, CFSTR(kIOHIDProductIDKey), productNumber);
+        IOHIDManagerSetDeviceMatching(gNativeDFGTDiscoveryManager, matching);
+        CFRelease(matching);
+        CFRelease(vendorNumber);
+        CFRelease(productNumber);
+
+        gNativeDFGTDiscoveryOpenResult =
+            IOHIDManagerOpen(gNativeDFGTDiscoveryManager, kIOHIDOptionsTypeNone);
+        if (gNativeDFGTDiscoveryOpenResult != kIOReturnSuccess) {
+            printf("Warning: shared DFGT discovery manager open returned (%x).\\n",
+                   (unsigned int)gNativeDFGTDiscoveryOpenResult);
+        } else {
+            printf("Opened separate shared DFGT discovery manager.\\n");
+        }
+    }
+
     for (int attempt = 0; attempt < 30 && !gNativeDFGTDevice; ++attempt) {
-        CFSetRef devices = IOHIDManagerCopyDevices(gHIDManagerRef);
+        CFSetRef devices = IOHIDManagerCopyDevices(gNativeDFGTDiscoveryManager);
         if (devices) {
             CFIndex count = CFSetGetCount(devices);
             const void **values = (const void **)calloc((size_t)count, sizeof(void *));
