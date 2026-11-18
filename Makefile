@@ -4,6 +4,6 @@ all:
 TELEMETRY_SDK = telemetry/scs-sdk
 
 telemetry-probe:
-	clang++ -std=c++17 -arch x86_64 -dynamiclib -fvisibility=hidden \
+	clang++ -std=c++17 -arch x86_64 -dynamiclib \
 		-I$(TELEMETRY_SDK) telemetry/FTWTelemetry.cpp \
 		-o telemetry/libFTWTelemetry.dylib
