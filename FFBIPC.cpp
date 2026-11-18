@@ -549,7 +549,12 @@ static void *clientMain(void *argument)
                     if (!isCurrentTelemetryClient(fd)) break;
 
                     pthread_mutex_lock(&telemetryMutex);
+                    // The handshake may happen while the game is still loading or
+                    // sitting in its menus. Enforce the watchdog only after a
+                    // DRIVING sample has made telemetrySampleValid true. PAUSED
+                    // and STOPPED samples clear it and neutralize force output.
                     const bool stale = telemetryClientFD == fd &&
+                        telemetrySampleValid &&
                         std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() -
                             lastTelemetryAccepted).count() > kTelemetryTimeoutMs;
