@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
@@ -88,7 +89,8 @@ bool connect_ipc()
         return false;
     }
 
-    char path[sizeof(sockaddr_un::sun_path)];
+    sockaddr_un address {};
+    char path[sizeof(address.sun_path)];
     const int path_len = std::snprintf(
         path, sizeof(path), "%s/Library/Application Support/FreeTheWheel/ffb.sock", home);
     if (path_len <= 0 || static_cast<size_t>(path_len) >= sizeof(path)) {
@@ -105,7 +107,6 @@ bool connect_ipc()
     int no_sigpipe = 1;
     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
 
-    sockaddr_un address {};
     address.sun_family = AF_UNIX;
     std::strncpy(address.sun_path, path, sizeof(address.sun_path) - 1);
     if (connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) != 0) {
