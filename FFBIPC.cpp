@@ -62,6 +62,7 @@ static IOReturn sendStopLocked()
 {
     if (!ffbSessionOpen) {
         ffbActive = false;
+        telemetryOutputActive = false;
         return kIOReturnSuccess;
     }
 
@@ -255,6 +256,8 @@ static void handleForce(int fd, int force)
 static void handleStop(int fd)
 {
     pthread_mutex_lock(&ffbMutex);
+    telemetryFFBEnabled = false;
+    resetTelemetryFilterLocked();
     IOReturn result = sendStopLocked();
     pthread_mutex_unlock(&ffbMutex);
 
@@ -532,12 +535,13 @@ static bool handleLegacyCommand(int fd, const char *request)
         const bool deviceOpen = IsNativeDFGTDeviceOpen();
         const bool active = ffbActive;
         snprintf(status, sizeof(status),
-                 "STATUS device=DFGT pid=C29A manager_open=%s manager_result=%08x device_ref=%s device_open=%s ffb=%s limit=%d\n",
+                 "STATUS device=DFGT pid=C29A manager_open=%s manager_result=%08x device_ref=%s device_open=%s ffb=%s limit=%d auto_ffb=%s\n",
                  IsHIDManagerOpen() ? "yes" : "no",
                  static_cast<unsigned int>(HIDManagerOpenResult()),
                  deviceAvailable ? "retained" : "unavailable",
                  deviceOpen ? "yes" : "no",
-                 active ? "active" : "stopped", kMaxForce);
+                 active ? "active" : "stopped", kMaxForce,
+                 telemetryFFBEnabled ? "enabled" : "disabled");
         pthread_mutex_unlock(&ffbMutex);
 
         pthread_mutex_lock(&telemetryMutex);
