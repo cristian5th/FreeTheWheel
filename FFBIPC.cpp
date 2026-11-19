@@ -166,7 +166,7 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     }
 
     if (result != kIOReturnSuccess) {
-        fprintf(stderr, "FFB IPC: automatic output failed (%08x); disabling.\\n",
+        fprintf(stderr, "FFB IPC: automatic output failed (%08x); disabling.\n",
                 static_cast<unsigned int>(result));
         (void)sendStopLocked();
         telemetryFFBEnabled = false;
@@ -208,6 +208,8 @@ static bool parseForce(const char *request, int *force)
 static void handleForce(int fd, int force)
 {
     pthread_mutex_lock(&ffbMutex);
+    telemetryFFBEnabled = false;
+    resetTelemetryFilterLocked();
 
     if (!IsNativeDFGTAvailable()) {
         replyLine(fd, "ERROR no_device\n");
@@ -622,7 +624,7 @@ static bool handleLegacyCommand(int fd, const char *request)
         IOReturn result = enable ? kIOReturnSuccess : sendStopLocked();
         pthread_mutex_unlock(&ffbMutex);
         char response[128];
-        snprintf(response, sizeof(response), "AUTO_FFB enabled=%s result=%08x\\n",
+        snprintf(response, sizeof(response), "AUTO_FFB enabled=%s result=%08x\n",
                  enable ? "yes" : "no", static_cast<unsigned int>(result));
         replyLine(fd, response);
     } else if (strcmp(request, "STOP") == 0) {
