@@ -708,6 +708,10 @@ static void *clientMain(void *argument)
         ssize_t count = recv(fd, input, sizeof(input), 0);
 
         if (count == 0) {
+            if (telemetryMode) {
+                fprintf(stderr,
+                        "FFB IPC: telemetry peer closed connection (fd=%d).\n", fd);
+            }
             // Legacy one-shot commands historically did not require a newline.
             // Telemetry sessions always use newline-delimited records.
             if (firstLine && !telemetryMode && used > 0) {
@@ -779,6 +783,9 @@ static void *clientMain(void *argument)
                         replyLine(fd, response);
                         done = true;
                     } else if (!acceptTelemetrySample(fd, line)) {
+                        fprintf(stderr,
+                                "FFB IPC: rejected telemetry sample (fd=%d): %s\n",
+                                fd, line);
                         replyLine(fd, "ERR invalid_or_stale_sample\n");
                         done = true;
                     }
