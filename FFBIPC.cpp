@@ -200,7 +200,7 @@ static void applyTelemetryForce(const TelemetrySample &sample)
                 "FFB AUTO DIAG: speed=%.2f steer_in=%.4f steer_filt=%.4f "
                 "steer_rate=%.4f target=%.4f force_filt=%.4f force_cmd=%d "
                 "samples=%llu zero=%llu reports=%llu reports_ok=%llu neutral=%llu "
-                "last_result=%08x\\n",
+                "last_result=%08x\n",
                 sample.speedMps, sample.steering, filteredSteering, steeringRate,
                 target, filteredForce, force,
                 static_cast<unsigned long long>(diagnosticSamples),
