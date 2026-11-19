@@ -96,6 +96,14 @@ static IOReturn neutralizeTelemetryEffectLocked()
 
 static void applyTelemetryForce(const TelemetrySample &sample)
 {
+    static auto diagnosticWindowStart = std::chrono::steady_clock::time_point{};
+    static uint64_t diagnosticSamples = 0;
+    static uint64_t diagnosticZeroSamples = 0;
+    static uint64_t diagnosticForceReports = 0;
+    static uint64_t diagnosticForceSuccesses = 0;
+    static uint64_t diagnosticNeutralReports = 0;
+    static IOReturn diagnosticLastResult = kIOReturnSuccess;
+
     pthread_mutex_lock(&ffbMutex);
     if (!telemetryFFBEnabled || !sample.driving ||
         std::fabs(sample.speedMps) < 0.5) {
@@ -144,10 +152,16 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     const int force = std::clamp(
         static_cast<int>(std::lround(filteredForce * 32.0)), -8, 8);
 
+    ++diagnosticSamples;
+    if (force == 0) ++diagnosticZeroSamples;
+
     IOReturn result = kIOReturnSuccess;
     if (force == 0) {
-        if (telemetryOutputActive)
+        if (telemetryOutputActive) {
             result = neutralizeTelemetryEffectLocked();
+            ++diagnosticNeutralReports;
+            diagnosticLastResult = result;
+        }
     } else {
         if (!IsNativeDFGTAvailable()) {
             result = kIOReturnNoDevice;
@@ -159,18 +173,47 @@ static void applyTelemetryForce(const TelemetrySample &sample)
             const UInt8 report[7] = {
                 0x11, 0x08, static_cast<UInt8>(0x80 + force), 0x80, 0, 0, 0
             };
+            ++diagnosticForceReports;
             result = SendNativeDFGTOutputReport(report, 7);
-            if (result == kIOReturnSuccess)
+            diagnosticLastResult = result;
+            if (result == kIOReturnSuccess) {
+                ++diagnosticForceSuccesses;
                 ffbActive = telemetryOutputActive = true;
+            }
         }
     }
 
+    diagnosticLastResult = result;
     if (result != kIOReturnSuccess) {
         fprintf(stderr, "FFB IPC: automatic output failed (%08x); disabling.\n",
                 static_cast<unsigned int>(result));
         (void)sendStopLocked();
         telemetryFFBEnabled = false;
         resetTelemetryFilterLocked();
+    }
+
+    const auto diagnosticNow = std::chrono::steady_clock::now();
+    if (diagnosticWindowStart == std::chrono::steady_clock::time_point{})
+        diagnosticWindowStart = diagnosticNow;
+    if (std::chrono::duration<double>(diagnosticNow - diagnosticWindowStart).count() >= 1.0) {
+        fprintf(stderr,
+                "FFB AUTO DIAG: speed=%.2f steer_in=%.4f steer_filt=%.4f "
+                "steer_rate=%.4f target=%.4f force_filt=%.4f force_cmd=%d "
+                "samples=%llu zero=%llu reports=%llu reports_ok=%llu neutral=%llu "
+                "last_result=%08x\\n",
+                sample.speedMps, sample.steering, filteredSteering, steeringRate,
+                target, filteredForce, force,
+                static_cast<unsigned long long>(diagnosticSamples),
+                static_cast<unsigned long long>(diagnosticZeroSamples),
+                static_cast<unsigned long long>(diagnosticForceReports),
+                static_cast<unsigned long long>(diagnosticForceSuccesses),
+                static_cast<unsigned long long>(diagnosticNeutralReports),
+                static_cast<unsigned int>(diagnosticLastResult));
+        diagnosticSamples = diagnosticZeroSamples = 0;
+        diagnosticForceReports = diagnosticForceSuccesses = 0;
+        diagnosticNeutralReports = 0;
+        diagnosticLastResult = kIOReturnSuccess;
+        diagnosticWindowStart = diagnosticNow;
     }
     pthread_mutex_unlock(&ffbMutex);
 }
