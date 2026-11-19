@@ -63,20 +63,89 @@ void close_ipc()
     }
 }
 
+bool send_all_bytes(int fd, const char *data, size_t length,
+                    size_t *bytes_sent, int *failure_errno)
+{
+    size_t sent = 0;
+    const unsigned long long deadline = monotonic_ms() + 20ULL;
+
+    while (sent < length) {
+        const ssize_t count = send(fd, data + sent, length - sent, 0);
+        if (count > 0) {
+            sent += static_cast<size_t>(count);
+            continue;
+        }
+        if (count == 0) {
+            *failure_errno = EPIPE;
+            break;
+        }
+
+        const int send_error = errno;
+        if (send_error == EINTR) {
+            continue;
+        }
+        if (send_error != EAGAIN && send_error != EWOULDBLOCK) {
+            *failure_errno = send_error;
+            break;
+        }
+
+        const unsigned long long now = monotonic_ms();
+        if (now >= deadline) {
+            *failure_errno = ETIMEDOUT;
+            break;
+        }
+
+        pollfd writable {};
+        writable.fd = fd;
+        writable.events = POLLOUT;
+        const int remaining = static_cast<int>(deadline - now);
+        const int ready = poll(&writable, 1, remaining);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            *failure_errno = errno;
+            break;
+        }
+        if (ready == 0) {
+            *failure_errno = ETIMEDOUT;
+            break;
+        }
+        if (writable.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            int socket_error = 0;
+            socklen_t error_length = sizeof(socket_error);
+            if (getsockopt(fd, SOL_SOCKET, SO_ERROR,
+                           &socket_error, &error_length) != 0) {
+                socket_error = errno;
+            }
+            *failure_errno = socket_error != 0 ? socket_error :
+                ((writable.revents & POLLNVAL) ? EBADF : EPIPE);
+            break;
+        }
+    }
+
+    *bytes_sent = sent;
+    return sent == length;
+}
+
 bool send_record(const char *record)
 {
     if (g_ipc_fd < 0) {
         return false;
     }
+
     const size_t length = std::strlen(record);
-    const ssize_t sent = send(g_ipc_fd, record, length, 0);
-    if (sent == static_cast<ssize_t>(length)) {
+    size_t bytes_sent = 0;
+    int failure_errno = 0;
+    if (send_all_bytes(g_ipc_fd, record, length,
+                       &bytes_sent, &failure_errno)) {
         return true;
     }
-    if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
-        return false;
-    }
-    log_game_message(SCS_LOG_TYPE_warning, "IPC send failed; disconnecting");
+
+    char message[256];
+    std::snprintf(message, sizeof(message),
+                  "IPC send failed; disconnecting (errno=%d: %s, sent=%zu/%zu bytes)",
+                  failure_errno, std::strerror(failure_errno),
+                  bytes_sent, length);
+    log_game_message(SCS_LOG_TYPE_warning, message);
     close_ipc();
     return false;
 }
@@ -121,9 +190,17 @@ bool connect_ipc()
 
     char hello[64];
     std::snprintf(hello, sizeof(hello), "HELLO FTW_TELEMETRY 1 %s\n", g_game_name);
-    if (send(fd, hello, std::strlen(hello), 0) != static_cast<ssize_t>(std::strlen(hello))) {
+    size_t hello_sent = 0;
+    int hello_error = 0;
+    const size_t hello_length = std::strlen(hello);
+    if (!send_all_bytes(fd, hello, hello_length, &hello_sent, &hello_error)) {
+        char message[192];
+        std::snprintf(message, sizeof(message),
+                      "IPC handshake send failed (errno=%d: %s, sent=%zu/%zu bytes)",
+                      hello_error, std::strerror(hello_error),
+                      hello_sent, hello_length);
         close(fd);
-        log_game_message(SCS_LOG_TYPE_warning, "IPC handshake send failed");
+        log_game_message(SCS_LOG_TYPE_warning, message);
         return false;
     }
 
