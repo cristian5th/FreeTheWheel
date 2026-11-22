@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <ctime>
 #include <cmath>
+#include <algorithm>
 #include <chrono>
 #include <vector>
 #include <new>
@@ -25,6 +26,11 @@ static pthread_mutex_t telemetryMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static bool ffbSessionOpen = false;
 static bool ffbActive = false;
+static bool telemetryOutputActive = false;
+static bool telemetryFFBEnabled = false;
+static double filteredSteering = 0.0, filteredForce = 0.0, previousSteering = 0.0;
+static bool telemetryFilterInitialized = false;
+static std::chrono::steady_clock::time_point previousTelemetryTime{};
 static time_t lastForceTime = 0;
 static constexpr int kMaxForce = 32;
 static constexpr time_t kWatchdogSeconds = 2;
@@ -56,15 +62,160 @@ static IOReturn sendStopLocked()
 {
     if (!ffbSessionOpen) {
         ffbActive = false;
+        telemetryOutputActive = false;
         return kIOReturnSuccess;
     }
 
     const UInt8 report[7] = {0x13, 0, 0, 0, 0, 0, 0};
     IOReturn result = SendNativeDFGTOutputReport(report, 7);
     ffbActive = false;
+    telemetryOutputActive = false;
     IOReturn closeResult = CloseNativeDFGTDevice();
     ffbSessionOpen = false;
     return result != kIOReturnSuccess ? result : closeResult;
+}
+
+static void resetTelemetryFilterLocked()
+{
+    filteredSteering = filteredForce = previousSteering = 0.0;
+    telemetryFilterInitialized = false;
+    previousTelemetryTime = std::chrono::steady_clock::time_point{};
+}
+
+static IOReturn neutralizeTelemetryEffectLocked()
+{
+    if (!ffbSessionOpen) {
+        ffbActive = telemetryOutputActive = false;
+        return kIOReturnSuccess;
+    }
+    const UInt8 report[7] = {0x13, 0, 0, 0, 0, 0, 0};
+    const IOReturn result = SendNativeDFGTOutputReport(report, 7);
+    ffbActive = telemetryOutputActive = false;
+    return result;
+}
+
+static void applyTelemetryForce(const TelemetrySample &sample)
+{
+    static auto diagnosticWindowStart = std::chrono::steady_clock::time_point{};
+    static uint64_t diagnosticSamples = 0;
+    static uint64_t diagnosticZeroSamples = 0;
+    static uint64_t diagnosticForceReports = 0;
+    static uint64_t diagnosticForceSuccesses = 0;
+    static uint64_t diagnosticNeutralReports = 0;
+    static IOReturn diagnosticLastResult = kIOReturnSuccess;
+
+    pthread_mutex_lock(&ffbMutex);
+    if (!telemetryFFBEnabled || !sample.driving ||
+        std::fabs(sample.speedMps) < 0.5) {
+        if (telemetryOutputActive &&
+            neutralizeTelemetryEffectLocked() != kIOReturnSuccess)
+            (void)sendStopLocked();
+        resetTelemetryFilterLocked();
+        pthread_mutex_unlock(&ffbMutex);
+        return;
+    }
+
+    const auto now = sample.receivedAt;
+    double dt = 1.0 / 60.0;
+    if (telemetryFilterInitialized) {
+        dt = std::chrono::duration<double>(now - previousTelemetryTime).count();
+        dt = std::clamp(dt, 0.001, 0.100);
+    }
+
+    const double steering = std::clamp(sample.steering, -1.0, 1.0);
+    const double alpha = dt / (0.040 + dt);
+    if (!telemetryFilterInitialized) {
+        filteredSteering = previousSteering = steering;
+        filteredForce = 0.0;
+        telemetryFilterInitialized = true;
+    } else {
+        filteredSteering += alpha * (steering - filteredSteering);
+    }
+
+    const double steeringRate = std::clamp(
+        (filteredSteering - previousSteering) / dt, -4.0, 4.0);
+    previousSteering = filteredSteering;
+    previousTelemetryTime = now;
+
+    const double speedGain = std::clamp(std::fabs(sample.speedMps) / 8.0, 0.15, 1.0);
+    const double centering = std::fabs(filteredSteering) < 0.015
+        ? 0.0 : -0.22 * filteredSteering;
+    const double target = std::clamp(
+        speedGain * (centering - 0.035 * steeringRate), -0.25, 0.25);
+
+    const double maxStep = dt; // 1.0 normalized unit per second.
+    const double slewed = filteredForce +
+        std::clamp(target - filteredForce, -maxStep, maxStep);
+    filteredForce += alpha * (slewed - filteredForce);
+
+    // Same constant-force report as the verified manual test; auto output <= FORCE 8.
+    const int force = std::clamp(
+        static_cast<int>(std::lround(filteredForce * 32.0)), -8, 8);
+
+    ++diagnosticSamples;
+    if (force == 0) ++diagnosticZeroSamples;
+
+    IOReturn result = kIOReturnSuccess;
+    if (force == 0) {
+        if (telemetryOutputActive) {
+            result = neutralizeTelemetryEffectLocked();
+            ++diagnosticNeutralReports;
+            diagnosticLastResult = result;
+        }
+    } else {
+        if (!IsNativeDFGTAvailable()) {
+            result = kIOReturnNoDevice;
+        } else if (!ffbSessionOpen) {
+            result = OpenNativeDFGTDeviceShared();
+            if (result == kIOReturnSuccess) ffbSessionOpen = true;
+        }
+        if (result == kIOReturnSuccess) {
+            const UInt8 report[7] = {
+                0x11, 0x08, static_cast<UInt8>(0x80 + force), 0x80, 0, 0, 0
+            };
+            ++diagnosticForceReports;
+            result = SendNativeDFGTOutputReport(report, 7);
+            diagnosticLastResult = result;
+            if (result == kIOReturnSuccess) {
+                ++diagnosticForceSuccesses;
+                ffbActive = telemetryOutputActive = true;
+            }
+        }
+    }
+
+    diagnosticLastResult = result;
+    if (result != kIOReturnSuccess) {
+        fprintf(stderr, "FFB IPC: automatic output failed (%08x); disabling.\n",
+                static_cast<unsigned int>(result));
+        (void)sendStopLocked();
+        telemetryFFBEnabled = false;
+        resetTelemetryFilterLocked();
+    }
+
+    const auto diagnosticNow = std::chrono::steady_clock::now();
+    if (diagnosticWindowStart == std::chrono::steady_clock::time_point{})
+        diagnosticWindowStart = diagnosticNow;
+    if (std::chrono::duration<double>(diagnosticNow - diagnosticWindowStart).count() >= 1.0) {
+        fprintf(stderr,
+                "FFB AUTO DIAG: speed=%.2f steer_in=%.4f steer_filt=%.4f "
+                "steer_rate=%.4f target=%.4f force_filt=%.4f force_cmd=%d "
+                "samples=%llu zero=%llu reports=%llu reports_ok=%llu neutral=%llu "
+                "last_result=%08x\n",
+                sample.speedMps, sample.steering, filteredSteering, steeringRate,
+                target, filteredForce, force,
+                static_cast<unsigned long long>(diagnosticSamples),
+                static_cast<unsigned long long>(diagnosticZeroSamples),
+                static_cast<unsigned long long>(diagnosticForceReports),
+                static_cast<unsigned long long>(diagnosticForceSuccesses),
+                static_cast<unsigned long long>(diagnosticNeutralReports),
+                static_cast<unsigned int>(diagnosticLastResult));
+        diagnosticSamples = diagnosticZeroSamples = 0;
+        diagnosticForceReports = diagnosticForceSuccesses = 0;
+        diagnosticNeutralReports = 0;
+        diagnosticLastResult = kIOReturnSuccess;
+        diagnosticWindowStart = diagnosticNow;
+    }
+    pthread_mutex_unlock(&ffbMutex);
 }
 
 static void *watchdogMain(void *)
@@ -72,7 +223,7 @@ static void *watchdogMain(void *)
     for (;;) {
         sleep(1);
         pthread_mutex_lock(&ffbMutex);
-        if (ffbSessionOpen && ffbActive &&
+        if (ffbSessionOpen && ffbActive && !telemetryOutputActive &&
             time(nullptr) - lastForceTime >= kWatchdogSeconds) {
             (void)sendStopLocked();
         }
@@ -100,6 +251,8 @@ static bool parseForce(const char *request, int *force)
 static void handleForce(int fd, int force)
 {
     pthread_mutex_lock(&ffbMutex);
+    telemetryFFBEnabled = false;
+    resetTelemetryFilterLocked();
 
     if (!IsNativeDFGTAvailable()) {
         replyLine(fd, "ERROR no_device\n");
@@ -148,6 +301,8 @@ static void handleForce(int fd, int force)
 static void handleStop(int fd)
 {
     pthread_mutex_lock(&ffbMutex);
+    telemetryFFBEnabled = false;
+    resetTelemetryFilterLocked();
     IOReturn result = sendStopLocked();
     pthread_mutex_unlock(&ffbMutex);
 
@@ -383,7 +538,14 @@ static bool acceptTelemetrySample(int fd, const char *line)
     const bool shouldStop = !sample.driving;
     pthread_mutex_unlock(&telemetryMutex);
 
-    if (shouldStop) stopTelemetryOutput();
+    if (shouldStop) {
+        stopTelemetryOutput();
+        pthread_mutex_lock(&ffbMutex);
+        resetTelemetryFilterLocked();
+        pthread_mutex_unlock(&ffbMutex);
+    } else {
+        applyTelemetryForce(sample);
+    }
     return true;
 }
 
@@ -418,12 +580,13 @@ static bool handleLegacyCommand(int fd, const char *request)
         const bool deviceOpen = IsNativeDFGTDeviceOpen();
         const bool active = ffbActive;
         snprintf(status, sizeof(status),
-                 "STATUS device=DFGT pid=C29A manager_open=%s manager_result=%08x device_ref=%s device_open=%s ffb=%s limit=%d\n",
+                 "STATUS device=DFGT pid=C29A manager_open=%s manager_result=%08x device_ref=%s device_open=%s ffb=%s limit=%d auto_ffb=%s\n",
                  IsHIDManagerOpen() ? "yes" : "no",
                  static_cast<unsigned int>(HIDManagerOpenResult()),
                  deviceAvailable ? "retained" : "unavailable",
                  deviceOpen ? "yes" : "no",
-                 active ? "active" : "stopped", kMaxForce);
+                 active ? "active" : "stopped", kMaxForce,
+                 telemetryFFBEnabled ? "enabled" : "disabled");
         pthread_mutex_unlock(&ffbMutex);
 
         pthread_mutex_lock(&telemetryMutex);
@@ -495,6 +658,18 @@ static bool handleLegacyCommand(int fd, const char *request)
         } else {
             handleForce(fd, force);
         }
+    } else if (strcmp(request, "AUTO_FFB ON") == 0 ||
+               strcmp(request, "AUTO_FFB OFF") == 0) {
+        const bool enable = strcmp(request, "AUTO_FFB ON") == 0;
+        pthread_mutex_lock(&ffbMutex);
+        telemetryFFBEnabled = enable;
+        resetTelemetryFilterLocked();
+        IOReturn result = enable ? kIOReturnSuccess : sendStopLocked();
+        pthread_mutex_unlock(&ffbMutex);
+        char response[128];
+        snprintf(response, sizeof(response), "AUTO_FFB enabled=%s result=%08x\n",
+                 enable ? "yes" : "no", static_cast<unsigned int>(result));
+        replyLine(fd, response);
     } else if (strcmp(request, "STOP") == 0) {
         handleStop(fd);
     } else {
@@ -634,6 +809,8 @@ static void *clientMain(void *argument)
             const bool completeLegacy =
                 strcmp(line, "PING") == 0 ||
                 strcmp(line, "STATUS") == 0 ||
+                strcmp(line, "AUTO_FFB ON") == 0 ||
+                strcmp(line, "AUTO_FFB OFF") == 0 ||
                 strcmp(line, "SHARED_PROBE") == 0 ||
                 strcmp(line, "PROBE") == 0 ||
                 strcmp(line, "STOP") == 0 ||

@@ -1,13 +1,13 @@
 # FreeTheWheel telemetry IPC and force model (design)
 
-Status: design only. This document does not change runtime code or HID/input handling.
+Status: initial runtime implementation on `ets2-synthetic-ffb`. Automatic output is disabled by default; enable explicitly with the legacy IPC command `AUTO_FFB ON`.
 
 ## Goals and invariants
 
 - One process owns the Logitech Driving Force GT (DFGT) HID device: FreeTheWheel.
 - The SCS telemetry plugin for ETS2/ATS never opens, claims, or writes to HID.
 - Preserve the existing native-mode setup, 900-degree range, buttons, pedals, and discovery-manager ownership path.
-- Keep the existing manual IPC commands (`PING`, `STATUS`, `FORCE -32..32`, `STOP`) compatible during migration.
+- Keep the existing manual IPC commands (`PING`, `STATUS`, `FORCE -32..32`, `STOP`) compatible; add `AUTO_FFB ON|OFF` as an explicit master switch.
 - A pause, game shutdown, disconnect, malformed stream, stale sample, or I/O error must lead to neutral output.
 - Do not claim physical road-force telemetry from the currently registered channels. `truck.effective.steering` is a normalized game steering signal, not a measured steering-wheel angle or tire aligning torque.
 
@@ -100,7 +100,7 @@ Then:
 2. Clamp (u) to [-0.25, 0.25] initially.
 3. Apply a slew-rate limit so output cannot jump; initial limit 1.0 normalized unit/second.
 4. Apply a short low-pass filter (time constant about 40 ms).
-5. Convert the bounded normalized value to the DFGT output encoding only inside the FreeTheWheel HID owner. Do not assume the existing manual constant-force report encoding is a general spring/damper API; verify report semantics and polarity experimentally at low strength before enabling closed-loop output.
+5. Convert the bounded normalized value to a force integer in [-8, 8] and use the same seven-byte output report already exercised by the manual `FORCE 8` test. This reuses a known-working output path, but the automatic effect's steering polarity and subjective feel still require physical validation. Automatic output remains disabled by default until explicitly enabled with `AUTO_FFB ON`.
 
 The coefficients above are deliberately conservative starting values, not calibrated DFGT constants. Keep them in a config structure so they can be tuned without changing protocol parsing. Provide a master enable and immediate STOP.
 
