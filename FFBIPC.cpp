@@ -138,8 +138,10 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     previousTelemetryTime = now;
 
     const double speedGain = std::clamp(std::fabs(sample.speedMps) / 8.0, 0.15, 1.0);
+    // Increase steady-state centering response by about 45% while keeping
+    // the existing output clamp, slew limiter, and automatic FORCE 8 ceiling.
     const double centering = std::fabs(filteredSteering) < 0.015
-        ? 0.0 : -0.22 * filteredSteering;
+        ? 0.0 : -0.32 * filteredSteering;
     const double target = std::clamp(
         speedGain * (centering - 0.035 * steeringRate), -0.25, 0.25);
 
