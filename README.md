@@ -29,16 +29,18 @@ The executable waits for you to press ENTER before exiting.
 
 ## Important: Mouse behaviour
 
-While FreeTheWheel is running, the mouse already connected to the computer will become unusable.
+FreeTheWheel may make a pointing device that was already connected before launch temporarily unusable.
 
-To continue using your computer, you must connect a separate USB mouse after launching FreeTheWheel.
+For a Bluetooth mouse or trackpad (for example, an Apple Magic Trackpad), you may be able to restore operation by switching the device off and back on after starting FreeTheWheel. This behaviour has been observed on macOS but may depend on the device.
+
+If that does not work, connect a separate USB mouse after launching FreeTheWheel.
 
 ## How to use it
 
 1. Connect the Logitech steering wheel.
 2. Run `./FreeTheWheel` (or double-click the executable).
 3. Leave the executable running.
-4. Connect a USB mouse after launching FreeTheWheel.
+4. If your Bluetooth mouse or trackpad stops responding, switch it off and back on. Alternatively, connect a USB mouse after launching FreeTheWheel.
 5. Start your game.
 
 You must repeat this procedure whenever you restart your Mac or reconnect the steering wheel.
@@ -51,17 +53,13 @@ Assuming you have a development environment installed, run `make`.
 
 Based on [Feral Interactive's FreeTheWheel](http://support.feralinteractive.com/en/faqs/free_the_wheel/) and [jackhumbert's FreeTheWheel](https://github.com/jackhumbert/FreeTheWheel).
 
+## Force-feedback integration (development)
 
-## Force-feedback integration (development branch)
-
-The `ffb-integration` branch adds a same-user Unix-domain IPC endpoint for an ETS2 telemetry bridge and retains a reference to the DFGT after it re-enumerates in native PID `0xC29A`.
+The development branch includes an experimental synthetic force-feedback mode driven by ETS2/ATS telemetry over a same-user Unix-domain socket.
 
 Socket path:
 `~/Library/Application Support/FreeTheWheel/ffb.sock`
 
-Protocol v1 currently supports:
-- `PING` → `PONG protocol=1`
-- `STATUS` → reports whether the native DFGT HID reference was retained
-- `FORCE ...` and `STOP` → explicitly rejected while output-report and stop handling are being validated
+The IPC protocol supports `PING`, `STATUS`, `FORCE n`, `STOP`, and `AUTO_FFB ON|OFF`. Automatic force feedback currently derives a steering-centering effect from the game's steering telemetry; it is not yet a reproduction of the simulator's full tyre/road forces.
 
-**Force output is deliberately disabled in this stage.** The IPC transport and retained device reference must be built and tested on the target Mac before any motor command is enabled. Existing wheel configuration, 900-degree range, and the process-lifetime behaviour are preserved.
+Automatic output is deliberately limited to `FORCE 8`, with filtering and a slew-rate limiter. This implementation is experimental and must be tested on the target wheel before wider use. Existing wheel configuration, 900-degree range, buttons, pedals, and the process-lifetime behaviour are intended to remain unchanged.
