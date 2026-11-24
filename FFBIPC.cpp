@@ -124,7 +124,7 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     }
 
     const double steering = std::clamp(sample.steering, -1.0, 1.0);
-    const double alpha = dt / (0.040 + dt);
+    const double alpha = dt / (0.025 + dt);
     if (!telemetryFilterInitialized) {
         filteredSteering = previousSteering = steering;
         filteredForce = 0.0;
@@ -146,11 +146,15 @@ static void applyTelemetryForce(const TelemetrySample &sample)
         std::max(0.0, std::fabs(filteredSteering) - steeringDeadband);
     const double effectiveSteering = std::copysign(
         steeringMagnitude / (1.0 - steeringDeadband), filteredSteering);
-    const double centering = -2.60 * effectiveSteering;
+        // Apply a sub-linear steering curve: preserve a gentle response near center,
+    // but build useful centering force earlier in small and medium turns.
+    const double shapedSteering = std::copysign(
+        std::pow(std::fabs(effectiveSteering), 0.75), effectiveSteering);
+    const double centering = -2.60 * shapedSteering;
     const double target = std::clamp(
         speedGain * (centering - 0.015 * steeringRate), -1.0, 1.0);
 
-    const double maxStep = 2.2 * dt; // 2.2 normalized units per second.
+    const double maxStep = 3.2 * dt; // 3.2 normalized units per second.
     const double slewed = filteredForce +
         std::clamp(target - filteredForce, -maxStep, maxStep);
     filteredForce += alpha * (slewed - filteredForce);
