@@ -1,4 +1,4 @@
-# Free The Wheel for macOS
+# FreeTheWheel for macOS
 
 A modified version of FreeTheWheel adapted to work on Apple Silicon Macs, including M1-based systems.
 
@@ -27,20 +27,26 @@ FreeTheWheel must remain running in the background throughout the gaming session
 
 The executable waits for you to press ENTER before exiting.
 
-## Important: Mouse behaviour
+## Bluetooth Magic Trackpad reconnection
 
-FreeTheWheel may make a pointing device that was already connected before launch temporarily unusable.
+Starting FreeTheWheel can make the configured Bluetooth pointing device temporarily unresponsive on some macOS systems. To recover it, FreeTheWheel automatically disconnects and reconnects **only the configured Apple Magic Trackpad** after detecting the native Logitech Driving Force GT.
 
-For a Bluetooth mouse or trackpad (for example, an Apple Magic Trackpad), you may be able to restore operation by switching the device off and back on after starting FreeTheWheel. This behaviour has been observed on macOS but may depend on the device.
+**Requirement: `blueutil` must be installed for automatic Trackpad reconnection to work.** Install it with Homebrew:
 
-If that does not work, connect a separate USB mouse after launching FreeTheWheel.
+```sh
+brew install blueutil
+```
+
+FreeTheWheel looks for `blueutil` at `/opt/homebrew/bin/blueutil` or `/usr/local/bin/blueutil`. If it is not installed, or is not found at either location, the Trackpad reconnection is skipped; wheel setup and the FFB service can still continue.
+
+**Important limitation:** this feature is configured specifically for one Apple Magic Trackpad Bluetooth address (set in `main.cpp`). It is not a general Bluetooth mouse/trackpad recovery feature and will not reconnect other pointing devices. The Magic Keyboard and other Bluetooth devices are not intentionally disconnected or modified. Anyone using a different Trackpad must replace the configured address in `main.cpp`.
 
 ## How to use it
 
 1. Connect the Logitech steering wheel.
 2. Run `./FreeTheWheel` (or double-click the executable).
-3. Leave the executable running.
-4. If your Bluetooth mouse or trackpad stops responding, switch it off and back on. Alternatively, connect a USB mouse after launching FreeTheWheel.
+3. Allow the configured Magic Trackpad reconnection to complete, if enabled and blueutil is installed.
+4. Leave FreeTheWheel running.
 5. Start your game.
 
 You must repeat this procedure whenever you restart your Mac or reconnect the steering wheel.
