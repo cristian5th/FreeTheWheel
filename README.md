@@ -27,21 +27,19 @@ FreeTheWheel must remain running in the background throughout the gaming session
 
 The executable waits for you to press ENTER before exiting.
 
-## Bluetooth pointing-device recovery
+## Bluetooth Magic Trackpad reconnection
 
-On some macOS systems, starting FreeTheWheel can temporarily make a previously connected Bluetooth mouse or trackpad unresponsive.
+Starting FreeTheWheel can make the configured Bluetooth pointing device temporarily unresponsive on some macOS systems. To recover it, FreeTheWheel automatically disconnects and reconnects **only the configured Apple Magic Trackpad** after detecting the native Logitech Driving Force GT.
 
-For Cristian's setup, FreeTheWheel can automatically reconnect the configured Apple Magic Trackpad after the native DFGT has been detected. It uses `blueutil` and targets only the paired Trackpad address configured in `main.cpp`; it does not disconnect the Magic Keyboard or toggle Bluetooth globally.
-
-Install blueutil with Homebrew if it is not already installed:
+**Requirement: `blueutil` must be installed for automatic Trackpad reconnection to work.** Install it with Homebrew:
 
 ```sh
 brew install blueutil
 ```
 
-The program checks the standard Homebrew locations `/opt/homebrew/bin/blueutil` and `/usr/local/bin/blueutil`. If it cannot find blueutil, wheel setup and the FFB service continue normally and the Trackpad reconnection is skipped.
+FreeTheWheel looks for `blueutil` at `/opt/homebrew/bin/blueutil` or `/usr/local/bin/blueutil`. If it is not installed, or is not found at either location, the Trackpad reconnection is skipped; wheel setup and the FFB service can still continue.
 
-This automatic reconnection is specific to the configured Trackpad address. Other users should change that address in `main.cpp` or leave the feature disabled.
+**Important limitation:** this feature is configured specifically for one Apple Magic Trackpad Bluetooth address (set in `main.cpp`). It is not a general Bluetooth mouse/trackpad recovery feature and will not reconnect other pointing devices. The Magic Keyboard and other Bluetooth devices are not intentionally disconnected or modified. Anyone using a different Trackpad must replace the configured address in `main.cpp`.
 
 ## How to use it
 
