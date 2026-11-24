@@ -100,50 +100,52 @@ static void ReconnectMagicTrackpad()
 
 int main(int argc, const char * argv[])
 {
-    printf("================================================================================\n");
-    printf("=                               Free The Wheel (FTW)                           =\n");
-    printf("=                             © Feral Interactive 2012                         =\n");
-    printf("=    This program comes with ABSOLUTELY NO WARRANTY; This is free software,    =\n");
+	printf("================================================================================\n");
+	printf("=                               Free The Wheel (FTW)                           =\n");
+	printf("=                             © Feral Interactive 2012                         =\n");
+	printf("=    This program comes with ABSOLUTELY NO WARRANTY; This is free software,    =\n"); 
     printf("=            You are welcome to redistribute it under certain conditions,      =\n");
-    printf("=                            Released under GNU License                        =\n");
+	printf("=                            Released under GNU License                        =\n");
     printf("================================================================================\n");
-
-    DeviceMode configMode = DeviceModeFull;
-    if (argc > 1)
-    {
-        if (strcmp(argv[1], "--info") == 0)
-        {
-            configMode = DeviceModeInfoOnly;
-        }
-        else if (strcmp(argv[1], "--restore") == 0)
-        {
-            configMode = DeviceModeStandard;
-        }
-    }
-    else
-    {
-        printf("=   --info       - display list of supported devices.                          =\n");
-        printf("=   --restore    - Restore your wheel to restricted (default) mode.            =\n");
+	
+	DeviceMode configMode = DeviceModeFull;
+	if(argc > 1)
+	{
+		if(strcmp(argv[1], "--info") == 0)
+		{
+			configMode = DeviceModeInfoOnly;
+		}
+		else if(strcmp(argv[1], "--restore") == 0)
+		{
+			configMode = DeviceModeStandard;
+		}
+	}
+	else
+	{
+		//printf("=                               :Advanced Options:                             =\n");
+		printf("=   --info       - display list of supported devices.                          =\n");
+		printf("=   --restore    - Restore your wheel to restricted (default) mode.            =\n");
         printf("================================================================================\n");
-    }
+	}
 
-    switch (configMode) {
-        case DeviceModeFull:
-            printf("Looking for supported wheels to enable in NATIVE mode. . .\n\n");
-            break;
-        case DeviceModeStandard:
-            printf("Returning wheels to RESTRICTED (Default) mode  . . .\n\n");
-            break;
-        case DeviceModeInfoOnly:
-            printf("Displaying list of supported devices:\n\n");
-            break;
-    }
+	switch (configMode) {
+		case DeviceModeFull:
+			printf("Looking for supported wheels to enable in NATIVE mode. . .\n\n");
+			break;
+			
+		case DeviceModeStandard:
+			printf("Returning wheels to RESTRICTED (Default) mode  . . .\n\n");
+			break;
+			
+		case DeviceModeInfoOnly:
+			printf("Displaying list of supported wheels:\n\n");
+			break;
+	}
+	ConfigAllDevices(configMode);
+	printf("\nDone.\n");
 
-    ConfigAllDevices(configMode);
-    printf("\nDone.\n");
-
-    // Run only after the native DFGT has been detected and retained. This
-    // does not alter FreeTheWheel's HID configuration or input handling.
+    // Run only after the native DFGT has been detected and retained.
+    // This optional Bluetooth recovery step does not touch wheel HID or input.
     if (configMode == DeviceModeFull && IsNativeDFGTAvailable()) {
         ReconnectMagicTrackpad();
     }
@@ -151,8 +153,7 @@ int main(int argc, const char * argv[])
     if (configMode == DeviceModeFull && !StartFFBIPCServer()) {
         fprintf(stderr, "Warning: FFB IPC server could not be started.\n");
     }
-
     printf("FreeTheWheel is running. Press ENTER to exit.\n");
-    getchar();
+	getchar();
     return 0;
 }
