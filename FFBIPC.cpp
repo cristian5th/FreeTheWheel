@@ -33,7 +33,7 @@ static bool telemetryFilterInitialized = false;
 static std::chrono::steady_clock::time_point previousTelemetryTime{};
 static time_t lastForceTime = 0;
 static constexpr int kMaxForce = 32;
-static constexpr int kMaxAutoForce = 16;
+static constexpr int kMaxAutoForce = 24;
 static constexpr time_t kWatchdogSeconds = 2;
 
 static constexpr size_t kMaxLineLength = 255;
@@ -142,16 +142,16 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     // Double the automatic centering response and raise its output ceiling
     // progressively, while retaining filtering, damping and slew limiting.
     const double centering = std::fabs(filteredSteering) < 0.015
-        ? 0.0 : -0.64 * filteredSteering;
+        ? 0.0 : -1.28 * filteredSteering;
     const double target = std::clamp(
-        speedGain * (centering - 0.035 * steeringRate), -0.50, 0.50);
+        speedGain * (centering - 0.035 * steeringRate), -0.75, 0.75);
 
     const double maxStep = dt; // 1.0 normalized unit per second.
     const double slewed = filteredForce +
         std::clamp(target - filteredForce, -maxStep, maxStep);
     filteredForce += alpha * (slewed - filteredForce);
 
-    // Same constant-force report as the verified manual test; auto output <= FORCE 16.
+    // Same constant-force report as the verified manual test; auto output <= FORCE 24.
     const int force = std::clamp(
         static_cast<int>(std::lround(filteredForce * 32.0)),
         -kMaxAutoForce, kMaxAutoForce);
