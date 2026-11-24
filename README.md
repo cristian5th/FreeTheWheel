@@ -62,4 +62,4 @@ Socket path:
 
 The IPC protocol supports `PING`, `STATUS`, `FORCE n`, `STOP`, and `AUTO_FFB ON|OFF`. Automatic force feedback currently derives a steering-centering effect from the game's steering telemetry; it is not yet a reproduction of the simulator's full tyre/road forces.
 
-Automatic output is deliberately limited to `FORCE 8`, with filtering and a slew-rate limiter. This implementation is experimental and must be tested on the target wheel before wider use. Existing wheel configuration, 900-degree range, buttons, pedals, and the process-lifetime behaviour are intended to remain unchanged.
+Automatic output is capped at `FORCE 28` (manual `FORCE` commands remain capped at 32). The synthetic model uses a deadband-compensated steering-centering spring, steering-rate damping, filtering, and a slew-rate limiter. Automatic FFB remains disabled by default and must be enabled explicitly with `AUTO_FFB ON`. This implementation is experimental and must be tested cautiously on the target wheel before wider use. Existing wheel configuration, 900-degree range, buttons, pedals, and process-lifetime behaviour are intended to remain unchanged.
