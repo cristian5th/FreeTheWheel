@@ -33,6 +33,7 @@ static bool telemetryFilterInitialized = false;
 static std::chrono::steady_clock::time_point previousTelemetryTime{};
 static time_t lastForceTime = 0;
 static constexpr int kMaxForce = 32;
+static constexpr int kMaxAutoForce = 32;
 static constexpr time_t kWatchdogSeconds = 2;
 
 static constexpr size_t kMaxLineLength = 255;
@@ -123,7 +124,7 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     }
 
     const double steering = std::clamp(sample.steering, -1.0, 1.0);
-    const double alpha = dt / (0.040 + dt);
+    const double alpha = dt / (0.025 + dt);
     if (!telemetryFilterInitialized) {
         filteredSteering = previousSteering = steering;
         filteredForce = 0.0;
@@ -137,20 +138,31 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     previousSteering = filteredSteering;
     previousTelemetryTime = now;
 
-    const double speedGain = std::clamp(std::fabs(sample.speedMps) / 8.0, 0.15, 1.0);
-    const double centering = std::fabs(filteredSteering) < 0.015
-        ? 0.0 : -0.22 * filteredSteering;
+    const double speedGain = std::clamp(std::fabs(sample.speedMps) / 8.0, 0.30, 1.0);
+    // Stronger continuous centering spring with a very small compensated
+    // deadband. Keep rate damping light so it cannot cancel the return force.
+    constexpr double steeringDeadband = 0.005;
+    const double steeringMagnitude =
+        std::max(0.0, std::fabs(filteredSteering) - steeringDeadband);
+    const double effectiveSteering = std::copysign(
+        steeringMagnitude / (1.0 - steeringDeadband), filteredSteering);
+        // Apply a sub-linear steering curve: preserve a gentle response near center,
+    // but build useful centering force earlier in small and medium turns.
+    const double shapedSteering = std::copysign(
+        std::pow(std::fabs(effectiveSteering), 0.75), effectiveSteering);
+    const double centering = -2.60 * shapedSteering;
     const double target = std::clamp(
-        speedGain * (centering - 0.035 * steeringRate), -0.25, 0.25);
+        speedGain * (centering - 0.015 * steeringRate), -1.0, 1.0);
 
-    const double maxStep = dt; // 1.0 normalized unit per second.
+    const double maxStep = 3.2 * dt; // 3.2 normalized units per second.
     const double slewed = filteredForce +
         std::clamp(target - filteredForce, -maxStep, maxStep);
     filteredForce += alpha * (slewed - filteredForce);
 
-    // Same constant-force report as the verified manual test; auto output <= FORCE 8.
+    // Same constant-force report as the verified manual test; auto output <= FORCE 32.
     const int force = std::clamp(
-        static_cast<int>(std::lround(filteredForce * 32.0)), -8, 8);
+        static_cast<int>(std::lround(filteredForce * 32.0)),
+        -kMaxAutoForce, kMaxAutoForce);
 
     ++diagnosticSamples;
     if (force == 0) ++diagnosticZeroSamples;

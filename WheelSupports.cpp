@@ -62,6 +62,18 @@ IOHIDManagerRef AllocateHIDManager()
     return gHIDManagerRef;
 }
 
+static void NativeDFGTDeviceMatched(void *, IOReturn result, void *,
+                                    IOHIDDeviceRef device)
+{
+    if (result != kIOReturnSuccess || !device || gNativeDFGTDevice) return;
+
+    UInt32 vendor = GetPropertyNumber(device, CFSTR(kIOHIDVendorIDKey));
+    UInt32 product = GetPropertyNumber(device, CFSTR(kIOHIDProductIDKey));
+    if (vendor == 0x046d && product == 0xc29a) {
+        gNativeDFGTDevice = (IOHIDDeviceRef)CFRetain(device);
+    }
+}
+
 static void RetainNativeDFGTIfPresent()
 {
     if (gNativeDFGTDevice) return;
@@ -98,17 +110,34 @@ static void RetainNativeDFGTIfPresent()
         CFRelease(vendorNumber);
         CFRelease(productNumber);
 
+        // Register and schedule before opening so macOS can deliver the
+        // matching callback when the wheel reappears as native PID C29A.
+        IOHIDManagerRegisterDeviceMatchingCallback(
+            gNativeDFGTDiscoveryManager, NativeDFGTDeviceMatched, nullptr);
+        IOHIDManagerScheduleWithRunLoop(
+            gNativeDFGTDiscoveryManager, CFRunLoopGetCurrent(),
+            kCFRunLoopDefaultMode);
+
         gNativeDFGTDiscoveryOpenResult =
             IOHIDManagerOpen(gNativeDFGTDiscoveryManager, kIOHIDOptionsTypeNone);
         if (gNativeDFGTDiscoveryOpenResult != kIOReturnSuccess) {
             printf("Warning: shared DFGT discovery manager open returned (%x).\n",
                    (unsigned int)gNativeDFGTDiscoveryOpenResult);
-        } else {
-            printf("Opened separate shared DFGT discovery manager.\n");
+            IOHIDManagerUnscheduleFromRunLoop(
+                gNativeDFGTDiscoveryManager, CFRunLoopGetCurrent(),
+                kCFRunLoopDefaultMode);
+            return;
         }
+        printf("Opened scheduled shared DFGT discovery manager.\n");
     }
 
-    for (int attempt = 0; attempt < 30 && !gNativeDFGTDevice; ++attempt) {
+    // Allow up to 10 seconds for macOS to publish the re-enumerated C29A.
+    // Run the current loop so IOHIDManager's device-matching callback executes.
+    for (int attempt = 0; attempt < 100 && !gNativeDFGTDevice; ++attempt) {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.1, true);
+
+        // Snapshot fallback in case the device was enumerated before callback
+        // delivery was serviced.
         CFSetRef devices = IOHIDManagerCopyDevices(gNativeDFGTDiscoveryManager);
         if (devices) {
             CFIndex count = CFSetGetCount(devices);
@@ -128,15 +157,13 @@ static void RetainNativeDFGTIfPresent()
             }
             CFRelease(devices);
         }
-        if (!gNativeDFGTDevice) usleep(100000);
     }
 
     if (gNativeDFGTDevice)
         printf("Retained native Logitech DFGT HID reference (VID 046D, PID C29A).\n");
     else
-        printf("Warning: native DFGT HID reference was not retained.\n");
+        printf("Warning: native DFGT HID reference was not retained after 10 seconds.\n");
 }
-
 bool IsNativeDFGTAvailable()
 {
     return gNativeDFGTDevice != NULL;
