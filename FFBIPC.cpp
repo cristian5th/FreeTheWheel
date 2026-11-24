@@ -33,7 +33,7 @@ static bool telemetryFilterInitialized = false;
 static std::chrono::steady_clock::time_point previousTelemetryTime{};
 static time_t lastForceTime = 0;
 static constexpr int kMaxForce = 32;
-static constexpr int kMaxAutoForce = 30;
+static constexpr int kMaxAutoForce = 32;
 static constexpr time_t kWatchdogSeconds = 2;
 
 static constexpr size_t kMaxLineLength = 255;
@@ -138,7 +138,7 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     previousSteering = filteredSteering;
     previousTelemetryTime = now;
 
-    const double speedGain = std::clamp(std::fabs(sample.speedMps) / 8.0, 0.25, 1.0);
+    const double speedGain = std::clamp(std::fabs(sample.speedMps) / 8.0, 0.30, 1.0);
     // Stronger continuous centering spring with a very small compensated
     // deadband. Keep rate damping light so it cannot cancel the return force.
     constexpr double steeringDeadband = 0.005;
@@ -146,16 +146,16 @@ static void applyTelemetryForce(const TelemetrySample &sample)
         std::max(0.0, std::fabs(filteredSteering) - steeringDeadband);
     const double effectiveSteering = std::copysign(
         steeringMagnitude / (1.0 - steeringDeadband), filteredSteering);
-    const double centering = -2.20 * effectiveSteering;
+    const double centering = -2.60 * effectiveSteering;
     const double target = std::clamp(
         speedGain * (centering - 0.015 * steeringRate), -1.0, 1.0);
 
-    const double maxStep = 1.8 * dt; // 1.8 normalized units per second.
+    const double maxStep = 2.2 * dt; // 2.2 normalized units per second.
     const double slewed = filteredForce +
         std::clamp(target - filteredForce, -maxStep, maxStep);
     filteredForce += alpha * (slewed - filteredForce);
 
-    // Same constant-force report as the verified manual test; auto output <= FORCE 30.
+    // Same constant-force report as the verified manual test; auto output <= FORCE 32.
     const int force = std::clamp(
         static_cast<int>(std::lround(filteredForce * 32.0)),
         -kMaxAutoForce, kMaxAutoForce);
