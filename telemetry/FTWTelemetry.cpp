@@ -364,27 +364,33 @@ void store_wheel_u32(const scs_string_t, const scs_u32_t index,
 bool register_wheel_channels(const scs_telemetry_init_params_v101_t *init,
                              const scs_u32_t each_frame)
 {
+    bool all_registered = true;
     for (scs_u32_t i = 0; i < kWheelTelemetryCount; ++i) {
         WheelTelemetry &wheel = g_wheels[i];
-        if (init->register_for_channel("truck.wheel.suspension.deflection", i,
+        const bool suspension_ok =
+            init->register_for_channel("truck.wheel.suspension.deflection", i,
                 SCS_VALUE_TYPE_float, each_frame, store_wheel_float,
-                &wheel.suspension) != SCS_RESULT_ok ||
+                &wheel.suspension) == SCS_RESULT_ok;
+        const bool ground_ok =
             init->register_for_channel("truck.wheel.on_ground", i,
                 SCS_VALUE_TYPE_bool, each_frame, store_wheel_bool,
-                &wheel.on_ground) != SCS_RESULT_ok ||
+                &wheel.on_ground) == SCS_RESULT_ok;
+        const bool substance_ok =
             init->register_for_channel("truck.wheel.substance", i,
                 SCS_VALUE_TYPE_u32, each_frame, store_wheel_u32,
-                &wheel.substance) != SCS_RESULT_ok ||
+                &wheel.substance) == SCS_RESULT_ok;
+        const bool velocity_ok =
             init->register_for_channel("truck.wheel.angular_velocity", i,
                 SCS_VALUE_TYPE_float, each_frame, store_wheel_float,
-                &wheel.angular_velocity) != SCS_RESULT_ok ||
+                &wheel.angular_velocity) == SCS_RESULT_ok;
+        const bool steering_ok =
             init->register_for_channel("truck.wheel.steering", i,
                 SCS_VALUE_TYPE_float, each_frame, store_wheel_float,
-                &wheel.steering) != SCS_RESULT_ok) {
-            return false;
-        }
+                &wheel.steering) == SCS_RESULT_ok;
+        all_registered = all_registered && suspension_ok && ground_ok &&
+            substance_ok && velocity_ok && steering_ok;
     }
-    return true;
+    return all_registered;
 }
 
 SCSAPI_VOID on_event(const scs_event_t event, const void *, const scs_context_t)
@@ -475,9 +481,14 @@ extern "C" SCSAPI_RESULT scs_telemetry_init(
         init->register_for_channel("truck.local.acceleration.angular", SCS_U32_NIL,
             SCS_VALUE_TYPE_fvector, each_frame, store_fvector,
             &g_angular_acceleration) == SCS_RESULT_ok;
-    const bool wheel_channels_ok = base_channels_ok &&
-        register_wheel_channels(init, each_frame);
-    const bool channels_ok = base_channels_ok && wheel_channels_ok;
+    const bool wheel_channels_ok = base_channels_ok
+        ? register_wheel_channels(init, each_frame) : false;
+    const bool channels_ok = base_channels_ok;
+
+    if (base_channels_ok && !wheel_channels_ok) {
+        log_game_message(SCS_LOG_TYPE_warning,
+                         "some indexed wheel telemetry channels are unavailable");
+    }
 
     if (!channels_ok) {
         log_game_message(SCS_LOG_TYPE_error, "channel registration failed");
