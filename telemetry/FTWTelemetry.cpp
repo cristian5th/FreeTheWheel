@@ -312,7 +312,7 @@ void send_telemetry(const char *state)
             wheel.suspension, wheel.on_ground ? 1U : 0U,
             wheel.substance, wheel.angular_velocity, wheel.steering);
     }
-    if (ok) ok = append(" %s\\n", state);
+    if (ok) ok = append(" %s\n", state);
     if (!ok) {
         log_game_message(SCS_LOG_TYPE_warning, "telemetry record overflow; closing IPC");
         close_ipc();
