@@ -150,7 +150,7 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     // but build useful centering force earlier in small and medium turns.
     const double shapedSteering = std::copysign(
         std::pow(std::fabs(effectiveSteering), 0.75), effectiveSteering);
-    const double centering = -2.60 * shapedSteering;
+    const double centering = -3.00 * shapedSteering;
     const double target = std::clamp(
         speedGain * (centering - 0.015 * steeringRate), -1.0, 1.0);
 
