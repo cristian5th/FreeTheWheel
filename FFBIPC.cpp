@@ -46,6 +46,8 @@ struct TelemetrySample {
     double speedMps = 0.0;
     double steering = 0.0;
     double rpm = 0.0;
+    double linearVelocity[3] = {};
+    double angularVelocity[3] = {};
     double linearAcceleration[3] = {};
     double angularAcceleration[3] = {};
     struct Wheel {
@@ -455,7 +457,7 @@ static bool parseHello(const char *line, const char **game)
 static bool parseTelemetry(const char *line, TelemetrySample *sample)
 {
     constexpr size_t kWheelCount = 16;
-    constexpr size_t kExpectedFields = 13 + kWheelCount * 5 + 1;
+    constexpr size_t kExpectedFields = 19 + kWheelCount * 5 + 1;
     const auto fields = splitFields(line);
     if (fields.size() != kExpectedFields || fields[0] != "T" ||
         fields[1] != "2") return false;
@@ -469,6 +471,14 @@ static bool parseTelemetry(const char *line, TelemetrySample *sample)
         return false;
 
     size_t cursor = 7;
+    for (double &v : sample->linearVelocity) {
+        if (!parseFiniteDouble(fields[cursor++].c_str(), -1000.0, 1000.0, &v))
+            return false;
+    }
+    for (double &v : sample->angularVelocity) {
+        if (!parseFiniteDouble(fields[cursor++].c_str(), -1000.0, 1000.0, &v))
+            return false;
+    }
     for (double &v : sample->linearAcceleration) {
         if (!parseFiniteDouble(fields[cursor++].c_str(), -1000.0, 1000.0, &v))
             return false;
