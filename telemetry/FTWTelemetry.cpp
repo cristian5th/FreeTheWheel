@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cstdarg>
+#include <cstdint>
 
 #include <fcntl.h>
 #include <poll.h>
@@ -29,6 +31,18 @@ unsigned int g_sequence = 0;
 bool g_driving = false;
 bool g_paused = false;
 unsigned long long g_last_sample_ms = 0;
+
+constexpr scs_u32_t kWheelTelemetryCount = 16;
+struct WheelTelemetry {
+    float suspension = 0.0f;
+    bool on_ground = false;
+    scs_u32_t substance = UINT32_MAX;
+    float angular_velocity = 0.0f;
+    float steering = 0.0f;
+};
+WheelTelemetry g_wheels[kWheelTelemetryCount];
+scs_value_fvector_t g_linear_acceleration {};
+scs_value_fvector_t g_angular_acceleration {};
 
 unsigned long long monotonic_ms()
 {
@@ -189,7 +203,7 @@ bool connect_ipc()
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
     char hello[64];
-    std::snprintf(hello, sizeof(hello), "HELLO FTW_TELEMETRY 1 %s\n", g_game_name);
+    std::snprintf(hello, sizeof(hello), "HELLO FTW_TELEMETRY 2 %s\n", g_game_name);
     size_t hello_sent = 0;
     int hello_error = 0;
     const size_t hello_length = std::strlen(hello);
@@ -212,7 +226,7 @@ bool connect_ipc()
         return false;
     }
     response[count] = '\0';
-    if (std::strncmp(response, "READY 1 ", 8) != 0) {
+    if (std::strncmp(response, "READY 2 ", 8) != 0) {
         close(fd);
         log_game_message(SCS_LOG_TYPE_warning, "IPC handshake rejected");
         return false;
@@ -249,12 +263,39 @@ void send_telemetry(const char *state)
         return;
     }
 
-    char record[256];
+    char record[2048];
+    size_t used = 0;
     ++g_sequence;
-    const int length = std::snprintf(
-        record, sizeof(record), "T 1 %u %llu %.6f %.6f %.1f %s\n",
-        g_sequence, now, g_speed_mps, g_steering, g_engine_rpm, state);
-    if (length <= 0 || static_cast<size_t>(length) >= sizeof(record)) {
+    auto append = [&](const char *format, ...) {
+        if (used >= sizeof(record)) return false;
+        va_list args;
+        va_start(args, format);
+        const int written = std::vsnprintf(record + used, sizeof(record) - used,
+                                           format, args);
+        va_end(args);
+        if (written < 0 || static_cast<size_t>(written) >= sizeof(record) - used)
+            return false;
+        used += static_cast<size_t>(written);
+        return true;
+    };
+
+    bool ok = append("T 2 %u %llu %.6f %.6f %.1f "
+                     "%.5f %.5f %.5f %.5f %.5f %.5f",
+        g_sequence, now, g_speed_mps, g_steering, g_engine_rpm,
+        g_linear_acceleration.x, g_linear_acceleration.y,
+        g_linear_acceleration.z, g_angular_acceleration.x,
+        g_angular_acceleration.y, g_angular_acceleration.z);
+
+    // Fixed slots preserve each indexed wheel's identity (indices 0..15).
+    for (scs_u32_t i = 0; ok && i < kWheelTelemetryCount; ++i) {
+        const WheelTelemetry &wheel = g_wheels[i];
+        ok = append(" %.5f %u %u %.5f %.5f",
+            wheel.suspension, wheel.on_ground ? 1U : 0U,
+            wheel.substance, wheel.angular_velocity, wheel.steering);
+    }
+    if (ok) ok = append(" %s\\n", state);
+    if (!ok) {
+        log_game_message(SCS_LOG_TYPE_warning, "telemetry record overflow; closing IPC");
         close_ipc();
         return;
     }
@@ -266,10 +307,65 @@ void send_telemetry(const char *state)
 void store_float(const scs_string_t, const scs_u32_t,
                  const scs_value_t *value, const scs_context_t context)
 {
-    if (!value || value->type != SCS_VALUE_TYPE_float || !context) {
-        return;
-    }
+    if (!value || value->type != SCS_VALUE_TYPE_float || !context) return;
     *static_cast<float *>(context) = value->value_float.value;
+}
+
+void store_fvector(const scs_string_t, const scs_u32_t,
+                   const scs_value_t *value, const scs_context_t context)
+{
+    if (!value || value->type != SCS_VALUE_TYPE_fvector || !context) return;
+    *static_cast<scs_value_fvector_t *>(context) = value->value_fvector;
+}
+
+void store_wheel_float(const scs_string_t, const scs_u32_t index,
+                       const scs_value_t *value, const scs_context_t context)
+{
+    if (!value || value->type != SCS_VALUE_TYPE_float || !context ||
+        index >= kWheelTelemetryCount) return;
+    *static_cast<float *>(context) = value->value_float.value;
+}
+
+void store_wheel_bool(const scs_string_t, const scs_u32_t index,
+                      const scs_value_t *value, const scs_context_t context)
+{
+    if (!value || value->type != SCS_VALUE_TYPE_bool || !context ||
+        index >= kWheelTelemetryCount) return;
+    *static_cast<bool *>(context) = value->value_bool.value != 0;
+}
+
+void store_wheel_u32(const scs_string_t, const scs_u32_t index,
+                     const scs_value_t *value, const scs_context_t context)
+{
+    if (!value || value->type != SCS_VALUE_TYPE_u32 || !context ||
+        index >= kWheelTelemetryCount) return;
+    *static_cast<scs_u32_t *>(context) = value->value_u32.value;
+}
+
+bool register_wheel_channels(const scs_telemetry_init_params_v101_t *init,
+                             const scs_u32_t each_frame)
+{
+    for (scs_u32_t i = 0; i < kWheelTelemetryCount; ++i) {
+        WheelTelemetry &wheel = g_wheels[i];
+        if (init->register_for_channel("truck.wheel.suspension.deflection", i,
+                SCS_VALUE_TYPE_float, each_frame, store_wheel_float,
+                &wheel.suspension) != SCS_RESULT_ok ||
+            init->register_for_channel("truck.wheel.on_ground", i,
+                SCS_VALUE_TYPE_bool, each_frame, store_wheel_bool,
+                &wheel.on_ground) != SCS_RESULT_ok ||
+            init->register_for_channel("truck.wheel.substance", i,
+                SCS_VALUE_TYPE_u32, each_frame, store_wheel_u32,
+                &wheel.substance) != SCS_RESULT_ok ||
+            init->register_for_channel("truck.wheel.angular_velocity", i,
+                SCS_VALUE_TYPE_float, each_frame, store_wheel_float,
+                &wheel.angular_velocity) != SCS_RESULT_ok ||
+            init->register_for_channel("truck.wheel.steering", i,
+                SCS_VALUE_TYPE_float, each_frame, store_wheel_float,
+                &wheel.steering) != SCS_RESULT_ok) {
+            return false;
+        }
+    }
+    return true;
 }
 
 SCSAPI_VOID on_event(const scs_event_t event, const void *, const scs_context_t)
@@ -341,13 +437,22 @@ extern "C" SCSAPI_RESULT scs_telemetry_init(
     }
 
     const scs_u32_t each_frame = SCS_TELEMETRY_CHANNEL_FLAG_each_frame;
-    const bool channels_ok =
+    const bool base_channels_ok =
         init->register_for_channel("truck.speed", SCS_U32_NIL,
             SCS_VALUE_TYPE_float, each_frame, store_float, &g_speed_mps) == SCS_RESULT_ok &&
         init->register_for_channel("truck.effective.steering", SCS_U32_NIL,
             SCS_VALUE_TYPE_float, each_frame, store_float, &g_steering) == SCS_RESULT_ok &&
         init->register_for_channel("truck.engine.rpm", SCS_U32_NIL,
-            SCS_VALUE_TYPE_float, each_frame, store_float, &g_engine_rpm) == SCS_RESULT_ok;
+            SCS_VALUE_TYPE_float, each_frame, store_float, &g_engine_rpm) == SCS_RESULT_ok &&
+        init->register_for_channel("truck.local.acceleration.linear", SCS_U32_NIL,
+            SCS_VALUE_TYPE_fvector, each_frame, store_fvector,
+            &g_linear_acceleration) == SCS_RESULT_ok &&
+        init->register_for_channel("truck.local.acceleration.angular", SCS_U32_NIL,
+            SCS_VALUE_TYPE_fvector, each_frame, store_fvector,
+            &g_angular_acceleration) == SCS_RESULT_ok;
+    const bool wheel_channels_ok = base_channels_ok &&
+        register_wheel_channels(init, each_frame);
+    const bool channels_ok = base_channels_ok && wheel_channels_ok;
 
     if (!channels_ok) {
         log_game_message(SCS_LOG_TYPE_error, "channel registration failed");
@@ -359,6 +464,9 @@ extern "C" SCSAPI_RESULT scs_telemetry_init(
     g_speed_mps = 0.0f;
     g_steering = 0.0f;
     g_engine_rpm = 0.0f;
+    g_linear_acceleration = {};
+    g_angular_acceleration = {};
+    for (auto &wheel : g_wheels) wheel = WheelTelemetry{};
     g_sequence = 0;
     g_driving = false;
     g_paused = false;
