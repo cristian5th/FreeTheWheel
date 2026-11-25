@@ -41,6 +41,8 @@ struct WheelTelemetry {
     float steering = 0.0f;
 };
 WheelTelemetry g_wheels[kWheelTelemetryCount];
+scs_value_fvector_t g_linear_velocity {};
+scs_value_fvector_t g_angular_velocity {};
 scs_value_fvector_t g_linear_acceleration {};
 scs_value_fvector_t g_angular_acceleration {};
 
@@ -280,8 +282,11 @@ void send_telemetry(const char *state)
     };
 
     bool ok = append("T 2 %u %llu %.6f %.6f %.1f "
+                     "%.5f %.5f %.5f %.5f %.5f %.5f "
                      "%.5f %.5f %.5f %.5f %.5f %.5f",
         g_sequence, now, g_speed_mps, g_steering, g_engine_rpm,
+        g_linear_velocity.x, g_linear_velocity.y, g_linear_velocity.z,
+        g_angular_velocity.x, g_angular_velocity.y, g_angular_velocity.z,
         g_linear_acceleration.x, g_linear_acceleration.y,
         g_linear_acceleration.z, g_angular_acceleration.x,
         g_angular_acceleration.y, g_angular_acceleration.z);
@@ -444,6 +449,12 @@ extern "C" SCSAPI_RESULT scs_telemetry_init(
             SCS_VALUE_TYPE_float, each_frame, store_float, &g_steering) == SCS_RESULT_ok &&
         init->register_for_channel("truck.engine.rpm", SCS_U32_NIL,
             SCS_VALUE_TYPE_float, each_frame, store_float, &g_engine_rpm) == SCS_RESULT_ok &&
+        init->register_for_channel("truck.local.velocity.linear", SCS_U32_NIL,
+            SCS_VALUE_TYPE_fvector, each_frame, store_fvector,
+            &g_linear_velocity) == SCS_RESULT_ok &&
+        init->register_for_channel("truck.local.velocity.angular", SCS_U32_NIL,
+            SCS_VALUE_TYPE_fvector, each_frame, store_fvector,
+            &g_angular_velocity) == SCS_RESULT_ok &&
         init->register_for_channel("truck.local.acceleration.linear", SCS_U32_NIL,
             SCS_VALUE_TYPE_fvector, each_frame, store_fvector,
             &g_linear_acceleration) == SCS_RESULT_ok &&
@@ -464,6 +475,8 @@ extern "C" SCSAPI_RESULT scs_telemetry_init(
     g_speed_mps = 0.0f;
     g_steering = 0.0f;
     g_engine_rpm = 0.0f;
+    g_linear_velocity = {};
+    g_angular_velocity = {};
     g_linear_acceleration = {};
     g_angular_acceleration = {};
     for (auto &wheel : g_wheels) wheel = WheelTelemetry{};
