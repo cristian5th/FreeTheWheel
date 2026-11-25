@@ -36,7 +36,7 @@ static constexpr int kMaxForce = 32;
 static constexpr int kMaxAutoForce = 32;
 static constexpr time_t kWatchdogSeconds = 2;
 
-static constexpr size_t kMaxLineLength = 255;
+static constexpr size_t kMaxLineLength = 2047;
 static constexpr int kTelemetryTimeoutMs = 300;
 static constexpr int kTelemetryMaxRateHz = 100;
 
@@ -46,6 +46,15 @@ struct TelemetrySample {
     double speedMps = 0.0;
     double steering = 0.0;
     double rpm = 0.0;
+    double linearAcceleration[3] = {};
+    double angularAcceleration[3] = {};
+    struct Wheel {
+        double suspension = 0.0;
+        bool onGround = false;
+        uint32_t substance = UINT32_MAX;
+        double angularVelocity = 0.0;
+        double steering = 0.0;
+    } wheels[16];
     bool driving = false;
     std::chrono::steady_clock::time_point receivedAt{};
 };
@@ -428,7 +437,7 @@ static bool parseHello(const char *line, const char **game)
 {
     const auto fields = splitFields(line);
     if (fields.size() != 4 || fields[0] != "HELLO" ||
-        fields[1] != "FTW_TELEMETRY" || fields[2] != "1") {
+        fields[1] != "FTW_TELEMETRY" || fields[2] != "2") {
         return false;
     }
 
@@ -445,32 +454,52 @@ static bool parseHello(const char *line, const char **game)
 
 static bool parseTelemetry(const char *line, TelemetrySample *sample)
 {
+    constexpr size_t kWheelCount = 16;
+    constexpr size_t kExpectedFields = 13 + kWheelCount * 5 + 1;
     const auto fields = splitFields(line);
-    if (fields.size() != 8 || fields[0] != "T" || fields[1] != "1")
-        return false;
+    if (fields.size() != kExpectedFields || fields[0] != "T" ||
+        fields[1] != "2") return false;
 
-    uint64_t sequence = 0;
-    uint64_t senderTime = 0;
-
+    uint64_t sequence = 0, senderTime = 0;
     if (!parseUnsigned(fields[2].c_str(), UINT32_MAX, &sequence) ||
         !parseUnsigned(fields[3].c_str(), UINT64_MAX, &senderTime) ||
-        !parseFiniteDouble(fields[4].c_str(), -100.0, 100.0,
-                           &sample->speedMps) ||
-        !parseFiniteDouble(fields[5].c_str(), -1.0, 1.0,
-                           &sample->steering) ||
-        !parseFiniteDouble(fields[6].c_str(), 0.0, 20000.0,
-                           &sample->rpm)) {
+        !parseFiniteDouble(fields[4].c_str(), -100.0, 100.0, &sample->speedMps) ||
+        !parseFiniteDouble(fields[5].c_str(), -1.0, 1.0, &sample->steering) ||
+        !parseFiniteDouble(fields[6].c_str(), 0.0, 20000.0, &sample->rpm))
         return false;
+
+    size_t cursor = 7;
+    for (double &v : sample->linearAcceleration) {
+        if (!parseFiniteDouble(fields[cursor++].c_str(), -1000.0, 1000.0, &v))
+            return false;
+    }
+    for (double &v : sample->angularAcceleration) {
+        if (!parseFiniteDouble(fields[cursor++].c_str(), -1000.0, 1000.0, &v))
+            return false;
     }
 
-    if (fields[7] != "DRIVING" && fields[7] != "PAUSED" &&
-        fields[7] != "STOPPED") {
-        return false;
+    for (auto &wheel : sample->wheels) {
+        uint64_t onGround = 0, substance = 0;
+        if (!parseFiniteDouble(fields[cursor++].c_str(), -10.0, 10.0,
+                               &wheel.suspension) ||
+            !parseUnsigned(fields[cursor++].c_str(), 1, &onGround) ||
+            !parseUnsigned(fields[cursor++].c_str(), UINT32_MAX, &substance) ||
+            !parseFiniteDouble(fields[cursor++].c_str(), -1000.0, 1000.0,
+                               &wheel.angularVelocity) ||
+            !parseFiniteDouble(fields[cursor++].c_str(), -1.0, 1.0,
+                               &wheel.steering))
+            return false;
+        wheel.onGround = onGround != 0;
+        wheel.substance = static_cast<uint32_t>(substance);
     }
+
+    const std::string &state = fields[cursor];
+    if (state != "DRIVING" && state != "PAUSED" && state != "STOPPED")
+        return false;
 
     sample->sequence = static_cast<uint32_t>(sequence);
     sample->senderMonotonicMs = senderTime;
-    sample->driving = fields[7] == "DRIVING";
+    sample->driving = state == "DRIVING";
     sample->receivedAt = std::chrono::steady_clock::now();
     return true;
 }
@@ -778,7 +807,7 @@ static void *clientMain(void *argument)
                         registerTelemetryClient(fd);
                         char ready[64];
                         snprintf(ready, sizeof(ready),
-                                 "READY 1 %d\n", kTelemetryMaxRateHz);
+                                 "READY 2 %d\n", kTelemetryMaxRateHz);
                         replyLine(fd, ready);
                         fprintf(stderr, "FFB IPC: persistent telemetry session (%s).\n",
                                 game);
