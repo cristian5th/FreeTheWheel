@@ -258,8 +258,22 @@ void send_telemetry(const char *state)
         return;
     }
 
+    auto finite_vector = [](const scs_value_fvector_t &v) {
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    };
+    bool finite_wheels = true;
+    for (const auto &wheel : g_wheels) {
+        finite_wheels = finite_wheels &&
+            std::isfinite(wheel.suspension) &&
+            std::isfinite(wheel.angular_velocity) &&
+            std::isfinite(wheel.steering);
+    }
     if (!std::isfinite(g_speed_mps) || !std::isfinite(g_steering) ||
-        !std::isfinite(g_engine_rpm)) {
+        !std::isfinite(g_engine_rpm) ||
+        !finite_vector(g_linear_velocity) ||
+        !finite_vector(g_angular_velocity) ||
+        !finite_vector(g_linear_acceleration) ||
+        !finite_vector(g_angular_acceleration) || !finite_wheels) {
         log_game_message(SCS_LOG_TYPE_warning, "non-finite telemetry; closing IPC");
         close_ipc();
         return;
