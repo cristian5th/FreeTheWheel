@@ -21,7 +21,7 @@ Retain directory mode 0700, socket mode 0600, and `getpeereid()` same-UID valida
 
 The plugin opens one persistent connection per game session. The server handles multiple newline-delimited records on that connection until EOF. A connection is a telemetry session; only one active telemetry session is allowed. A newly authenticated session replaces the previous session only after the old session is stopped and closed.
 
-Use bounded line buffering (maximum 256 bytes per record). Reject overlong, incomplete, non-ASCII/control-character, non-finite, or out-of-range fields. Do not let untrusted values reach HID report construction.
+Use bounded line buffering (maximum 2048 bytes per record). Reject overlong, incomplete, non-ASCII/control-character, non-finite, or out-of-range fields. Do not let untrusted values reach HID report construction.
 
 ## Protocol version 1
 
@@ -65,6 +65,31 @@ Optional diagnostic response:
 `ERR <reason>\n`
 
 Telemetry is one-way after handshake; do not require an ACK for every frame. This avoids blocking the SCS callback. The server may log counters and the last accepted sequence locally.
+
+## Protocol version 2 — expanded vehicle and wheel telemetry
+
+The current plugin and server use protocol version 2. The handshake is:
+
+`HELLO FTW_TELEMETRY 2 ETS2\n` or `HELLO FTW_TELEMETRY 2 ATS\n`
+
+The server replies `READY 2 <max_rate_hz>\n`. Version 1 clients are not accepted by this branch; legacy manual commands remain unchanged.
+
+A version 2 sample has this fixed field order:
+
+`T 2 <seq> <monotonic_ms> <speed_mps> <effective_steering> <rpm> <linear_vx> <linear_vy> <linear_vz> <angular_vx> <angular_vy> <angular_vz> <linear_ax> <linear_ay> <linear_az> <angular_ax> <angular_ay> <angular_az> [wheel fields × 16] <state>\n`
+
+Each of the 16 wheel slots contains five values in index order (0 through 15):
+
+`<suspension_deflection_m> <on_ground_0_or_1> <substance_id> <wheel_angular_velocity_rps> <wheel_steering_rotations> `
+
+Vehicle-space vectors use the SCS SDK axes: X right, Y up, Z backwards. Linear velocity is in m/s; angular velocity is in rotations/s; linear acceleration is in m/s²; angular acceleration is in rotations/s². Wheel channels are indexed per the SCS SDK. A slot without a current value retains its initialized neutral/default value.
+
+The plugin registers these SCS channels:
+- Existing: `truck.speed`, `truck.effective.steering`, `truck.engine.rpm`.
+- Vehicle motion: `truck.local.velocity.linear`, `truck.local.velocity.angular`, `truck.local.acceleration.linear`, `truck.local.acceleration.angular`.
+- For wheel indices 0–15: `truck.wheel.suspension.deflection`, `truck.wheel.on_ground`, `truck.wheel.substance`, `truck.wheel.angular_velocity`, `truck.wheel.steering`.
+
+These additions provide inputs for later slip, suspension, road-surface and impact estimators. They do not yet generate those effects; the current force calculation remains the existing synthetic centering model.
 
 ## Server timing and fail-safe behavior
 
