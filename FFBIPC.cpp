@@ -32,8 +32,8 @@ static double filteredSteering = 0.0, filteredForce = 0.0, previousSteering = 0.
 static bool telemetryFilterInitialized = false;
 static std::chrono::steady_clock::time_point previousTelemetryTime{};
 static time_t lastForceTime = 0;
-static constexpr int kMaxForce = 32;
-static constexpr int kMaxAutoForce = 32;
+static constexpr int kMaxForce = 127;
+static constexpr int kMaxAutoForce = 64;
 static constexpr time_t kWatchdogSeconds = 2;
 
 static constexpr size_t kMaxLineLength = 2047;
@@ -170,9 +170,9 @@ static void applyTelemetryForce(const TelemetrySample &sample)
         std::clamp(target - filteredForce, -maxStep, maxStep);
     filteredForce += alpha * (slewed - filteredForce);
 
-    // Same constant-force report as the verified manual test; auto output <= FORCE 32.
+    // Same constant-force report as the verified manual test; automatic output is conservatively capped at 64/127.
     const int force = std::clamp(
-        static_cast<int>(std::lround(filteredForce * 32.0)),
+        static_cast<int>(std::lround(filteredForce * 64.0)),
         -kMaxAutoForce, kMaxAutoForce);
 
     ++diagnosticSamples;
@@ -705,7 +705,7 @@ static bool handleLegacyCommand(int fd, const char *request)
     } else if (strncmp(request, "FORCE ", 6) == 0) {
         int force = 0;
         if (!parseForce(request, &force)) {
-            replyLine(fd, "ERROR force_out_of_range_or_invalid (allowed -32..32)\n");
+            replyLine(fd, "ERROR force_out_of_range_or_invalid (allowed -127..127)\n");
         } else {
             handleForce(fd, force);
         }
