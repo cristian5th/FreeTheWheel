@@ -170,7 +170,7 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     const double maxStep = 3.2 * dt; // 3.2 normalized units per second.
     const double slewed = filteredForce +
         std::clamp(target - filteredForce, -maxStep, maxStep);
-    filteredForce += alpha * (slewed - filteredForce);
+    filteredForce = slewed;
 
     // Same constant-force report as the verified manual test; automatic output is conservatively capped at 64/127.
     const int force = std::clamp(
