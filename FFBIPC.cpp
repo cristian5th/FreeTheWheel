@@ -117,8 +117,7 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     static IOReturn diagnosticLastResult = kIOReturnSuccess;
 
     pthread_mutex_lock(&ffbMutex);
-    if (!telemetryFFBEnabled || !sample.driving ||
-        std::fabs(sample.speedMps) < 0.5) {
+    if (!telemetryFFBEnabled || !sample.driving) {
         if (telemetryOutputActive &&
             neutralizeTelemetryEffectLocked() != kIOReturnSuccess)
             (void)sendStopLocked();
@@ -149,19 +148,22 @@ static void applyTelemetryForce(const TelemetrySample &sample)
     previousSteering = filteredSteering;
     previousTelemetryTime = now;
 
-    const double speedGain = std::clamp(std::fabs(sample.speedMps) / 8.0, 0.30, 1.0);
-    // Stronger continuous centering spring with a very small compensated
-    // deadband. Keep rate damping light so it cannot cancel the return force.
+    // Keep a small steering resistance at standstill, then increase it
+    // progressively with road speed instead of reaching full gain at 8 m/s.
+    const double speed = std::fabs(sample.speedMps);
+    const double speedGain = std::clamp(
+        0.12 + 0.60 * (1.0 - std::exp(-speed / 10.0)), 0.12, 0.72);
+
+    // Smooth, moderate centering: retain the compensated deadband and light
+    // rate damping, while avoiding saturation during ordinary steering.
     constexpr double steeringDeadband = 0.005;
     const double steeringMagnitude =
         std::max(0.0, std::fabs(filteredSteering) - steeringDeadband);
     const double effectiveSteering = std::copysign(
         steeringMagnitude / (1.0 - steeringDeadband), filteredSteering);
-        // Apply a sub-linear steering curve: preserve a gentle response near center,
-    // but build useful centering force earlier in small and medium turns.
     const double shapedSteering = std::copysign(
-        std::pow(std::fabs(effectiveSteering), 0.75), effectiveSteering);
-    const double centering = -3.00 * shapedSteering;
+        std::pow(std::fabs(effectiveSteering), 0.90), effectiveSteering);
+    const double centering = -1.65 * shapedSteering;
     const double target = std::clamp(
         speedGain * (centering - 0.015 * steeringRate), -1.0, 1.0);
 
